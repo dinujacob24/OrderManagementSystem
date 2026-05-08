@@ -1,0 +1,58 @@
+{
+  "info": {
+    "name": "Order Service API",
+    "description": "Saga Pattern - Order Service Endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"CUST-001\",\n  \"items\": [\n    {\n      \"productId\": \"PROD-001\",\n      \"productName\": \"Laptop\",\n      \"quantity\": 1,\n      \"unitPrice\": 999.99\n    },\n    {\n      \"productId\": \"PROD-002\",\n      \"productName\": \"Mouse\",\n      \"quantity\": 2,\n      \"unitPrice\": 29.99\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "orders"]
+        },
+        "description": "Creates a new order and starts the saga workflow"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Order Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "orders", "{{orderId}}"]
+        },
+        "description": "Gets the current status of an order including saga state"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://localhost:5001",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

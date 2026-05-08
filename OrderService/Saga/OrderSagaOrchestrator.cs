@@ -1,0 +1,285 @@
+using MassTransit;
+using Microsoft.EntityFrameworkCore;
+using OrderService.Domain;
+using OrderService.DTOs;
+using OrderService.Infrastructure.Database;
+using OrderService.Messages.Commands;
+using OrderService.Messages.Events;
+
+namespace OrderService.Saga
+{
+    public class OrderSagaOrchestrator
+    {
+        private readonly OrderDbContext _dbContext;
+        private readonly IPublishEndpoint _publishEndpoint;
+        private readonly ILogger<OrderSagaOrchestrator> _logger;
+
+        public OrderSagaOrchestrator(
+            OrderDbContext dbContext,
+            IPublishEndpoint publishEndpoint,
+            ILogger<OrderSagaOrchestrator> logger)
+        {
+            _dbContext = dbContext;
+            _publishEndpoint = publishEndpoint;
+            _logger = logger;
+        }
+
+        public async Task<Guid> StartOrderSaga(Order order, List<OrderItemDto> items)
+        {
+            var sagaId = Guid.NewGuid();
+
+            var sagaState = new SagaState
+            {
+                SagaId = sagaId,
+                OrderId = order.OrderId,
+                CustomerId = order.CustomerId,
+                CurrentStep = "OrderCreated",
+                Status = OrderStatus.Pending,
+                StartedAt = DateTime.UtcNow,
+                RetryCount = 0
+            };
+
+            _dbContext.SagaStates.Add(sagaState);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Saga {SagaId} started for Order {OrderId}", sagaId, order.OrderId);
+
+            // Publish OrderCreatedEvent - Order Details Service will consume this
+            var orderCreatedEvent = new OrderCreatedEvent
+            {
+                SagaId = sagaId,
+                OrderId = order.OrderId,
+                CustomerId = order.CustomerId,
+                Items = items.Select(i => new OrderItemEventDto
+                {
+                    ProductId = i.ProductId,
+                    ProductName = i.ProductName,
+                    Quantity = i.Quantity,
+                    UnitPrice = i.UnitPrice
+                }).ToList(),
+                TotalAmount = order.TotalAmount,
+                Timestamp = DateTime.UtcNow
+            };
+
+            await _publishEndpoint.Publish(orderCreatedEvent);
+            _logger.LogInformation("OrderCreatedEvent published for Saga {SagaId}", sagaId);
+
+            // Update order status
+            order.Status = OrderStatus.OrderDetailsProcessing;
+            await _dbContext.SaveChangesAsync();
+
+            return sagaId;
+        }
+
+        public async Task HandleOrderDetailsCompleted(OrderDetailsCompletedEvent @event)
+        {
+            var sagaState = await _dbContext.SagaStates
+                .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
+
+            if (sagaState == null)
+            {
+                _logger.LogWarning("Saga {SagaId} not found", @event.SagaId);
+                return;
+            }
+
+            if (@event.Success)
+            {
+                sagaState.IsOrderDetailsCompleted = true;
+                sagaState.CurrentStep = "OrderDetailsCompleted";
+
+                var order = await _dbContext.Orders.FindAsync(@event.OrderId);
+                if (order != null)
+                {
+                    order.Status = OrderStatus.PaymentProcessing;
+                    order.UpdatedAt = DateTime.UtcNow;
+                }
+
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
+
+                // Send command to Payment Service
+                await _publishEndpoint.Publish(new ProcessPaymentCommand
+                {
+                    SagaId = @event.SagaId,
+                    OrderId = @event.OrderId,
+                    CustomerId = sagaState.CustomerId,
+                    Amount = order?.TotalAmount ?? 0,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                _logger.LogError("Order details failed for Saga {SagaId}: {Error}", @event.SagaId, @event.ErrorMessage);
+                await CompensateOrder(sagaState, "Order details processing failed: " + @event.ErrorMessage);
+            }
+        }
+
+        public async Task HandlePaymentCompleted(PaymentCompletedEvent @event)
+        {
+            var sagaState = await _dbContext.SagaStates
+                .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
+
+            if (sagaState == null)
+            {
+                _logger.LogWarning("Saga {SagaId} not found", @event.SagaId);
+                return;
+            }
+
+            if (@event.Success)
+            {
+                sagaState.IsPaymentCompleted = true;
+                sagaState.CurrentStep = "PaymentCompleted";
+
+                var order = await _dbContext.Orders.FindAsync(@event.OrderId);
+                if (order != null)
+                {
+                    order.Status = OrderStatus.NotificationProcessing;
+                    order.UpdatedAt = DateTime.UtcNow;
+                }
+
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Payment completed for Saga {SagaId}, sending notification", @event.SagaId);
+
+                // Send command to Notification Service
+                await _publishEndpoint.Publish(new SendNotificationCommand
+                {
+                    SagaId = @event.SagaId,
+                    OrderId = @event.OrderId,
+                    CustomerId = sagaState.CustomerId,
+                    Message = $"Your order #{@event.OrderId} has been successfully placed!",
+                    NotificationType = "OrderConfirmation",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                _logger.LogError("Payment failed for Saga {SagaId}: {Error}", @event.SagaId, @event.ErrorMessage);
+                await CompensatePayment(sagaState, "Payment processing failed: " + @event.ErrorMessage);
+            }
+        }
+
+        public async Task HandleNotificationCompleted(NotificationCompletedEvent @event)
+        {
+            var sagaState = await _dbContext.SagaStates
+                .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
+
+            if (sagaState == null)
+            {
+                _logger.LogWarning("Saga {SagaId} not found", @event.SagaId);
+                return;
+            }
+
+            if (@event.Success)
+            {
+                sagaState.IsNotificationCompleted = true;
+                sagaState.CurrentStep = "Completed";
+                sagaState.Status = OrderStatus.Completed;
+                sagaState.CompletedAt = DateTime.UtcNow;
+
+                var order = await _dbContext.Orders.FindAsync(@event.OrderId);
+                if (order != null)
+                {
+                    order.Status = OrderStatus.Completed;
+                    order.UpdatedAt = DateTime.UtcNow;
+                }
+
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("Saga {SagaId} completed successfully", @event.SagaId);
+
+                // Publish final OrderCompletedEvent
+                await _publishEndpoint.Publish(new OrderCompletedEvent
+                {
+                    SagaId = @event.SagaId,
+                    OrderId = @event.OrderId,
+                    CustomerId = sagaState.CustomerId,
+                    TotalAmount = order?.TotalAmount ?? 0,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                // Notification failure - retry mechanism
+                _logger.LogWarning("Notification failed for Saga {SagaId}, will retry", @event.SagaId);
+
+                if (sagaState.RetryCount < 3)
+                {
+                    sagaState.RetryCount++;
+                    await _dbContext.SaveChangesAsync();
+
+                    // Retry notification
+                    await _publishEndpoint.Publish(new SendNotificationCommand
+                    {
+                        SagaId = @event.SagaId,
+                        OrderId = @event.OrderId,
+                        CustomerId = sagaState.CustomerId,
+                        Message = $"Your order #{@event.OrderId} has been successfully placed!",
+                        NotificationType = "OrderConfirmation",
+                        Timestamp = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    _logger.LogError("Notification failed after {RetryCount} retries for Saga {SagaId}", sagaState.RetryCount, @event.SagaId);
+                    sagaState.CurrentStep = "NotificationFailed";
+                    sagaState.ErrorMessage = "Notification failed after maximum retries";
+                    sagaState.Status = OrderStatus.Completed; // Order is still valid
+                    await _dbContext.SaveChangesAsync();
+                }
+            }
+        }
+
+        private async Task CompensateOrder(SagaState sagaState, string reason)
+        {
+            _logger.LogWarning("Compensating order for Saga {SagaId}", sagaState.SagaId);
+
+            var order = await _dbContext.Orders.FindAsync(sagaState.OrderId);
+            if (order != null)
+            {
+                order.Status = OrderStatus.Cancelled;
+                order.UpdatedAt = DateTime.UtcNow;
+            }
+
+            sagaState.Status = OrderStatus.Cancelled;
+            sagaState.CurrentStep = "Compensated";
+            sagaState.ErrorMessage = reason;
+            sagaState.CompletedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            // Notify customer about cancellation
+            await _publishEndpoint.Publish(new OrderCancelledEvent
+            {
+                SagaId = sagaState.SagaId,
+                OrderId = sagaState.OrderId,
+                CustomerId = sagaState.CustomerId,
+                Reason = reason,
+                Timestamp = DateTime.UtcNow
+            });
+
+            await _publishEndpoint.Publish(new SendNotificationCommand
+            {
+                SagaId = sagaState.SagaId,
+                OrderId = sagaState.OrderId,
+                CustomerId = sagaState.CustomerId,
+                Message = $"Your order #{sagaState.OrderId} has been cancelled. Reason: {reason}",
+                NotificationType = "OrderCancellation",
+                Timestamp = DateTime.UtcNow
+            });
+
+            _logger.LogInformation("Order cancelled and compensation completed for Saga {SagaId}", sagaState.SagaId);
+        }
+
+        private async Task CompensatePayment(SagaState sagaState, string reason)
+        {
+            _logger.LogWarning("Compensating payment for Saga {SagaId}", sagaState.SagaId);
+
+            // In a real scenario, you would publish a rollback event to Order Details Service
+            // to delete the order details that were created
+
+            await CompensateOrder(sagaState, reason);
+        }
+    }
+}
