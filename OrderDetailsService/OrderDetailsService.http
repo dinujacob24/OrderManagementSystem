@@ -1,0 +1,13 @@
+@OrderDetailsService_HostAddress = http://localhost:5202
+
+### Get Order Items by OrderId
+GET {{OrderDetailsService_HostAddress}}/api/orders/1/items
+Accept: application/json
+
+###
+
+### Health Check - Swagger UI
+GET {{OrderDetailsService_HostAddress}}/swagger/index.html
+Accept: text/html
+
+###
