@@ -10,6 +10,7 @@ namespace OrderDetailsService.Infrastructure.Database
         }
 
         public DbSet<OrderItem> OrderItems { get; set; }
+        public DbSet<OutboxMessage> OutboxMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -26,6 +27,14 @@ namespace OrderDetailsService.Infrastructure.Database
 
             modelBuilder.Entity<OrderItem>()
                 .HasIndex(o => o.ProductId);
+
+            modelBuilder.Entity<OutboxMessage>()
+                .HasIndex(o => o.Processed)
+                .HasDatabaseName("IX_OutboxMessages_Processed");
+
+            modelBuilder.Entity<OutboxMessage>()
+                .Property(o => o.MessageType)
+                .HasMaxLength(200);
 
             base.OnModelCreating(modelBuilder);
         }

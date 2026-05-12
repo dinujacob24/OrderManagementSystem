@@ -9,16 +9,13 @@ namespace OrderDetailsService.Consumers
     public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
     {
         private readonly OrderDetailsDbContext _context;
-        private readonly IPublishEndpoint _publishEndpoint;
         private readonly ILogger<OrderCreatedConsumer> _logger;
 
         public OrderCreatedConsumer(
             OrderDetailsDbContext context,
-            IPublishEndpoint publishEndpoint,
             ILogger<OrderCreatedConsumer> logger)
         {
             _context = context;
-            _publishEndpoint = publishEndpoint;
             _logger = logger;
         }
 
@@ -64,13 +61,39 @@ namespace OrderDetailsService.Consumers
                 }).ToList();
 
                 _context.OrderItems.AddRange(orderItems);
+                // Persist order items and the outbox message within the same transaction
+                var outboxEvent = new OrderDetailsCompletedEvent
+                {
+                    SagaId = message.SagaId,
+                    OrderId = message.OrderId,
+                    Items = orderItems.Select(oi => new OrderItemDto
+                    {
+                        OrderItemId = oi.OrderItemId,
+                        ProductId = oi.ProductId,
+                        ProductName = oi.ProductName,
+                        Quantity = oi.Quantity,
+                        UnitPrice = oi.UnitPrice,
+                        TotalPrice = oi.TotalPrice
+                    }).ToList(),
+                    Timestamp = DateTime.UtcNow
+                };
+
+                var outbox = new Infrastructure.Database.OutboxMessage
+                {
+                    MessageType = nameof(OrderDetailsCompletedEvent),
+                    Payload = System.Text.Json.JsonSerializer.Serialize(outboxEvent),
+                    CreatedAt = DateTime.UtcNow,
+                    Processed = false
+                };
+
+                _context.OutboxMessages.Add(outbox);
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation("OrderDetailsService: Successfully added {Count} items for OrderId: {OrderId}",
                     orderItems.Count, message.OrderId);
 
-                // Publish success event
-                await PublishSuccessEvent(message, orderItems);
+                // Publish success event (via outbox background processor)
+                _logger.LogInformation("OrderDetailsService: Saved outbox message for OrderId: {OrderId}", message.OrderId);
             }
             catch (Exception ex)
             {
@@ -97,8 +120,19 @@ namespace OrderDetailsService.Consumers
                 Timestamp = DateTime.UtcNow
             };
 
-            await _publishEndpoint.Publish(completedEvent);
-            _logger.LogInformation("OrderDetailsService: Published OrderDetailsCompletedEvent for OrderId: {OrderId}", message.OrderId);
+            // Save success event to outbox for reliable dispatch
+            var outbox = new Infrastructure.Database.OutboxMessage
+            {
+                MessageType = nameof(OrderDetailsCompletedEvent),
+                Payload = System.Text.Json.JsonSerializer.Serialize(completedEvent),
+                CreatedAt = DateTime.UtcNow,
+                Processed = false
+            };
+
+            _context.OutboxMessages.Add(outbox);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("OrderDetailsService: Saved OrderDetailsCompletedEvent to outbox for OrderId: {OrderId}", message.OrderId);
         }
 
         private async Task PublishFailureEvent(OrderCreatedEvent message, string reason)
@@ -111,8 +145,19 @@ namespace OrderDetailsService.Consumers
                 Timestamp = DateTime.UtcNow
             };
 
-            await _publishEndpoint.Publish(failedEvent);
-            _logger.LogInformation("OrderDetailsService: Published OrderDetailsFailedEvent for OrderId: {OrderId}, Reason: {Reason}",
+            // Save failure event to outbox for reliable dispatch
+            var outbox = new Infrastructure.Database.OutboxMessage
+            {
+                MessageType = nameof(OrderDetailsFailedEvent),
+                Payload = System.Text.Json.JsonSerializer.Serialize(failedEvent),
+                CreatedAt = DateTime.UtcNow,
+                Processed = false
+            };
+
+            _context.OutboxMessages.Add(outbox);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("OrderDetailsService: Saved OrderDetailsFailedEvent to outbox for OrderId: {OrderId}, Reason: {Reason}",
                 message.OrderId, reason);
         }
     }

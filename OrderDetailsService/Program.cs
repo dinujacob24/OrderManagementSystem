@@ -24,6 +24,9 @@ builder.Services.AddMassTransit(x =>
         cfg.ConfigureEndpoints(context);
     });
 
+// Register outbox dispatcher as background service
+builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatcher>();
+
     // For production, use RabbitMQ:
     // x.UsingRabbitMq((context, cfg) =>
     // {
