@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Consumers;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
+using OrderService.Background;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,9 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Pro
 
 // Saga Orchestrator
 builder.Services.AddScoped<OrderSagaOrchestrator>();
+
+// Register outbox consumer as background service
+builder.Services.AddHostedService<OutboxConsumer>();
 
 // MassTransit - Message Bus Configuration
 builder.Services.AddMassTransit(x =>

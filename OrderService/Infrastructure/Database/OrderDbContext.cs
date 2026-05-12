@@ -11,6 +11,7 @@ namespace OrderService.Infrastructure.Database
 
         public DbSet<Order> Orders { get; set; }
         public DbSet<SagaState> SagaStates { get; set; }
+        public DbSet<OutboxMessage> OutboxMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -23,6 +24,18 @@ namespace OrderService.Infrastructure.Database
 
             modelBuilder.Entity<SagaState>()
                 .HasIndex(s => s.OrderId);
+
+            modelBuilder.Entity<OutboxMessage>()
+                .HasIndex(o => o.Processed)
+                .HasDatabaseName("IX_OutboxMessages_Processed");
+
+            modelBuilder.Entity<OutboxMessage>()
+                .HasIndex(o => o.LockExpiresAt)
+                .HasDatabaseName("IX_OutboxMessages_LockExpiresAt");
+
+            modelBuilder.Entity<OutboxMessage>()
+                .Property(o => o.MessageType)
+                .HasMaxLength(200);
 
             base.OnModelCreating(modelBuilder);
         }

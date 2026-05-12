@@ -9,13 +9,16 @@ namespace OrderDetailsService.Consumers
     public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
     {
         private readonly OrderDetailsDbContext _context;
+        private readonly IPublishEndpoint _publishEndpoint;
         private readonly ILogger<OrderCreatedConsumer> _logger;
 
         public OrderCreatedConsumer(
             OrderDetailsDbContext context,
+            IPublishEndpoint publishEndpoint,
             ILogger<OrderCreatedConsumer> logger)
         {
             _context = context;
+            _publishEndpoint = publishEndpoint;
             _logger = logger;
         }
 
@@ -120,19 +123,8 @@ namespace OrderDetailsService.Consumers
                 Timestamp = DateTime.UtcNow
             };
 
-            // Save success event to outbox for reliable dispatch
-            var outbox = new Infrastructure.Database.OutboxMessage
-            {
-                MessageType = nameof(OrderDetailsCompletedEvent),
-                Payload = System.Text.Json.JsonSerializer.Serialize(completedEvent),
-                CreatedAt = DateTime.UtcNow,
-                Processed = false
-            };
-
-            _context.OutboxMessages.Add(outbox);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("OrderDetailsService: Saved OrderDetailsCompletedEvent to outbox for OrderId: {OrderId}", message.OrderId);
+            await _publishEndpoint.Publish(completedEvent);
+            _logger.LogInformation("OrderDetailsService: Published OrderDetailsCompletedEvent for OrderId: {OrderId}", message.OrderId);
         }
 
         private async Task PublishFailureEvent(OrderCreatedEvent message, string reason)
