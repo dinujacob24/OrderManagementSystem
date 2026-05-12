@@ -17,8 +17,11 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Pro
 // Saga Orchestrator
 builder.Services.AddScoped<OrderSagaOrchestrator>();
 
-// Register outbox consumer as background service
+// Register outbox consumer as background service (consumes from OrderDetailsService)
 builder.Services.AddHostedService<OutboxConsumer>();
+
+// Register outbox dispatcher as background service (publishes OrderService events)
+builder.Services.AddHostedService<OutboxDispatcher>();
 
 // MassTransit - Message Bus Configuration
 builder.Services.AddMassTransit(x =>

@@ -33,6 +33,10 @@ namespace OrderDetailsService.Infrastructure.Database
                 .HasDatabaseName("IX_OutboxMessages_Processed");
 
             modelBuilder.Entity<OutboxMessage>()
+                .HasIndex(o => o.LockExpiresAt)
+                .HasDatabaseName("IX_OutboxMessages_LockExpiresAt");
+
+            modelBuilder.Entity<OutboxMessage>()
                 .Property(o => o.MessageType)
                 .HasMaxLength(200);
 

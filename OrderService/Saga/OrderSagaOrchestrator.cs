@@ -44,7 +44,7 @@ namespace OrderService.Saga
 
             _logger.LogInformation("Saga {SagaId} started for Order {OrderId}", sagaId, order.OrderId);
 
-            // Publish OrderCreatedEvent - Order Details Service will consume this
+            // Save OrderCreatedEvent to outbox for reliable delivery to OrderDetailsService
             var orderCreatedEvent = new OrderCreatedEvent
             {
                 SagaId = sagaId,
@@ -61,8 +61,18 @@ namespace OrderService.Saga
                 Timestamp = DateTime.UtcNow
             };
 
-            await _publishEndpoint.Publish(orderCreatedEvent);
-            _logger.LogInformation("OrderCreatedEvent published for Saga {SagaId}", sagaId);
+            var outbox = new Infrastructure.Database.OutboxMessage
+            {
+                MessageType = nameof(OrderCreatedEvent),
+                Payload = System.Text.Json.JsonSerializer.Serialize(orderCreatedEvent),
+                CreatedAt = DateTime.UtcNow,
+                Processed = false
+            };
+
+            _dbContext.OutboxMessages.Add(outbox);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("OrderCreatedEvent saved to outbox for Saga {SagaId}", sagaId);
 
             // Update order status
             order.Status = OrderStatus.OrderDetailsProcessing;

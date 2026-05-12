@@ -16,5 +16,13 @@ namespace OrderDetailsService.Infrastructure.Database
         public bool Processed { get; set; } = false;
 
         public DateTime? ProcessedAt { get; set; }
+
+        public int Attempts { get; set; } = 0;
+
+        public string? LastError { get; set; }
+
+        public Guid? LockToken { get; set; }
+
+        public DateTime? LockExpiresAt { get; set; }
     }
 }

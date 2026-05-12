@@ -12,6 +12,15 @@ builder.Services.AddDbContext<OrderDetailsDbContext>(options =>
 // MediatR for CQRS
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Program).Assembly));
 
+// Register consumers for DI
+builder.Services.AddScoped<OrderCreatedConsumer>();
+
+// Register outbox consumer as background service (consumes from OrderService)
+builder.Services.AddHostedService<OrderDetailsService.Background.OutboxConsumer>();
+
+// Register outbox dispatcher as background service (publishes OrderDetailsService events)
+builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatcher>();
+
 // MassTransit - Message Bus Configuration
 builder.Services.AddMassTransit(x =>
 {
