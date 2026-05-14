@@ -120,20 +120,33 @@ namespace OrderService.Saga
                     _logger.LogInformation("Updated order {OrderId} status to PaymentProcessing", order.OrderId);
                 }
 
-                await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("SaveChanges completed - Saga state updated successfully");
 
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
 
-                // Send command to Payment Service
-                await _publishEndpoint.Publish(new Shared.Messages.Commands.ProcessPaymentCommand
+                // Send command to Payment Service via database outbox
+                var paymentCommand = new Shared.Messages.Commands.ProcessPaymentCommand
                 {
                     SagaId = @event.SagaId,
                     OrderId = @event.OrderId,
                     CustomerId = sagaState.CustomerId,
                     Amount = order?.TotalAmount ?? 0,
                     Timestamp = DateTime.UtcNow
-                });
+                };
+
+                var outboxMessage = new OutboxMessage
+                {
+                    Id = Guid.NewGuid(),
+                    MessageType = nameof(Shared.Messages.Commands.ProcessPaymentCommand),
+                    Payload = System.Text.Json.JsonSerializer.Serialize(paymentCommand),
+                    CreatedAt = DateTime.UtcNow,
+                    Processed = false
+                };
+
+                _dbContext.OutboxMessages.Add(outboxMessage);
+                await _dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("ProcessPaymentCommand written to outbox for OrderId: {OrderId}", @event.OrderId);
             }
             else
             {

@@ -43,23 +43,27 @@ namespace OrderService.Background
 
                     // Log polling activity
                     var totalUnprocessed = await db.OutboxMessages
-                        .Where(m => (m.MessageType == "OrderDetailsCompletedEvent" || m.MessageType == "OrderDetailsFailedEvent") && !m.Processed)
+                        .Where(m => (m.MessageType == "OrderDetailsCompletedEvent" 
+                                  || m.MessageType == "OrderDetailsFailedEvent"
+                                  || m.MessageType == "PaymentCompletedEvent") 
+                                  && !m.Processed)
                         .CountAsync(stoppingToken);
 
                     if (totalUnprocessed > 0)
                     {
-                        _logger.LogInformation("OutboxConsumer: Polling... Found {Count} unprocessed OrderDetails event messages", totalUnprocessed);
+                        _logger.LogInformation("OutboxConsumer: Polling... Found {Count} unprocessed event messages", totalUnprocessed);
                     }
 
                     // Claim unprocessed messages atomically using a lock token
-                    // Look for OrderDetailsCompletedEvent and OrderDetailsFailedEvent from OrderDetailsService
                     var claimQuery = @"
                         UPDATE OutboxMessages 
                         SET LockToken = {0}, LockExpiresAt = {1}, Attempts = Attempts + 1
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND (MessageType = 'OrderDetailsCompletedEvent' OR MessageType = 'OrderDetailsFailedEvent')
+                            AND (MessageType = 'OrderDetailsCompletedEvent' 
+                                 OR MessageType = 'OrderDetailsFailedEvent'
+                                 OR MessageType = 'PaymentCompletedEvent')
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -137,6 +141,30 @@ namespace OrderService.Background
                                     await sagaOrchestrator.HandleOrderDetailsCompleted(localEvent);
                                 }
                             }
+                            else if (msg.MessageType == "PaymentCompletedEvent")
+                            {
+                                var evt = JsonSerializer.Deserialize<PaymentCompletedEventDto>(msg.Payload);
+                                if (evt != null)
+                                {
+                                    _logger.LogInformation("OutboxConsumer: Deserialized PaymentCompletedEvent - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                                        evt.SagaId, evt.OrderId, evt.Success);
+
+                                    var localEvent = new Shared.Messages.Events.PaymentCompletedEvent
+                                    {
+                                        SagaId = evt.SagaId,
+                                        OrderId = evt.OrderId,
+                                        Amount = evt.Amount,
+                                        TransactionId = evt.TransactionId,
+                                        Success = evt.Success,
+                                        ErrorMessage = evt.ErrorMessage,
+                                        Timestamp = evt.Timestamp
+                                    };
+
+                                    await sagaOrchestrator.HandlePaymentCompleted(localEvent);
+
+                                    _logger.LogInformation("OutboxConsumer: HandlePaymentCompleted returned");
+                                }
+                            }
 
                             // Mark as processed
                             msg.Processed = true;
@@ -201,6 +229,17 @@ namespace OrderService.Background
             public Guid SagaId { get; set; }
             public int OrderId { get; set; }
             public string Reason { get; set; } = string.Empty;
+            public DateTime Timestamp { get; set; }
+        }
+
+        private class PaymentCompletedEventDto
+        {
+            public Guid SagaId { get; set; }
+            public int OrderId { get; set; }
+            public decimal Amount { get; set; }
+            public string? TransactionId { get; set; }
+            public bool Success { get; set; }
+            public string? ErrorMessage { get; set; }
             public DateTime Timestamp { get; set; }
         }
 
