@@ -3,13 +3,15 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Domain;
 using OrderService.DTOs;
 using OrderService.Infrastructure.Database;
-using OrderService.Messages.Commands;
-using OrderService.Messages.Events;
+using Shared.Messages.Commands;
+using Shared.Messages.Events;
 using Shared.Messages.Events;
 using SharedOrderCreatedEvent = Shared.Messages.Events.OrderCreatedEvent;
 using SharedOrderItemEventDto = Shared.Messages.Events.OrderItemEventDto;
 using SharedOrderDetailsCompletedEvent = Shared.Messages.Events.OrderDetailsCompletedEvent;
 using OrderItemDto = Shared.Messages.Events.OrderItemDto;
+using OrderService.Messages.Events;
+using OrderService.Messages.Commands;
 
 namespace OrderService.Saga
 {
@@ -124,7 +126,7 @@ namespace OrderService.Saga
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
 
                 // Send command to Payment Service
-                await _publishEndpoint.Publish(new ProcessPaymentCommand
+                await _publishEndpoint.Publish(new Shared.Messages.Commands.ProcessPaymentCommand
                 {
                     SagaId = @event.SagaId,
                     OrderId = @event.OrderId,
@@ -140,7 +142,7 @@ namespace OrderService.Saga
             }
         }
 
-        public async Task HandlePaymentCompleted(PaymentCompletedEvent @event)
+        public async Task HandlePaymentCompleted(Shared.Messages.Events.PaymentCompletedEvent @event)
         {
             var sagaState = await _dbContext.SagaStates
                 .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
