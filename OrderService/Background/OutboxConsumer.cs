@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
@@ -22,6 +23,7 @@ namespace OrderService.Background
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("OutboxConsumer started - polling OrderDetailsService outbox");
+            _logger.LogInformation("OutboxConsumer: Polling interval = {Interval} seconds, Max attempts = {MaxAttempts}", _interval.TotalSeconds, _maxAttempts);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -29,32 +31,45 @@ namespace OrderService.Background
                 {
                     using var scope = _serviceProvider.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-                    var sagaOrchestrator = scope.ServiceProvider.GetRequiredService<OrderSagaOrchestrator>();
+
+                    // Create saga orchestrator manually and pass the same db context
+                    var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<OrderSagaOrchestrator>>();
+                    var sagaOrchestrator = new OrderSagaOrchestrator(db, publishEndpoint, logger);
 
                     var now = DateTime.UtcNow;
                     var lockToken = Guid.NewGuid();
                     var lockExpiry = now.Add(_lockDuration);
 
+                    // Log polling activity
+                    var totalUnprocessed = await db.OutboxMessages
+                        .Where(m => (m.MessageType == "OrderDetailsCompletedEvent" || m.MessageType == "OrderDetailsFailedEvent") && !m.Processed)
+                        .CountAsync(stoppingToken);
+
+                    if (totalUnprocessed > 0)
+                    {
+                        _logger.LogInformation("OutboxConsumer: Polling... Found {Count} unprocessed OrderDetails event messages", totalUnprocessed);
+                    }
+
                     // Claim unprocessed messages atomically using a lock token
+                    // Look for OrderDetailsCompletedEvent and OrderDetailsFailedEvent from OrderDetailsService
                     var claimQuery = @"
                         UPDATE OutboxMessages 
-                        SET LockToken = @p0, LockExpiresAt = @p1, Attempts = Attempts + 1
+                        SET LockToken = {0}, LockExpiresAt = {1}, Attempts = Attempts + 1
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND Attempts < @p2
-                            AND (LockExpiresAt IS NULL OR LockExpiresAt < @p3)
+                            AND (MessageType = 'OrderDetailsCompletedEvent' OR MessageType = 'OrderDetailsFailedEvent')
+                            AND Attempts < {2}
+                            AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
                             LIMIT 20
                         )";
 
                     await db.Database.ExecuteSqlRawAsync(
                         claimQuery,
-                        lockToken,
-                        lockExpiry,
-                        _maxAttempts,
-                        now,
-                        stoppingToken);
+                        cancellationToken: stoppingToken,
+                        parameters: new object[] { lockToken, lockExpiry, _maxAttempts, now });
 
                     // Fetch claimed messages
                     var claimedMessages = await db.OutboxMessages
@@ -74,17 +89,34 @@ namespace OrderService.Background
                                 var evt = JsonSerializer.Deserialize<OrderDetailsCompletedEventDto>(msg.Payload);
                                 if (evt != null)
                                 {
+                                    _logger.LogInformation("OutboxConsumer: Deserialized OrderDetailsCompletedEvent - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                                        evt.SagaId, evt.OrderId, evt.Success);
+
                                     // Map to local event shape and process via saga
-                                    var localEvent = new Messages.Events.OrderDetailsCompletedEvent
+                                    var localEvent = new Shared.Messages.Events.OrderDetailsCompletedEvent
                                     {
                                         SagaId = evt.SagaId,
                                         OrderId = evt.OrderId,
-                                        Success = true, // Items present means success
-                                        ErrorMessage = null,
+                                        Success = evt.Success,
+                                        ErrorMessage = evt.ErrorMessage,
                                         Timestamp = evt.Timestamp
                                     };
 
                                     await sagaOrchestrator.HandleOrderDetailsCompleted(localEvent);
+
+                                    _logger.LogInformation("OutboxConsumer: HandleOrderDetailsCompleted returned, checking if saga state was updated...");
+
+                                    // Verify the saga state was actually updated
+                                    var verifyState = await db.SagaStates.FirstOrDefaultAsync(s => s.SagaId == evt.SagaId, stoppingToken);
+                                    if (verifyState != null)
+                                    {
+                                        _logger.LogInformation("OutboxConsumer: Saga state verification - IsOrderDetailsCompleted: {IsCompleted}, CurrentStep: {Step}",
+                                            verifyState.IsOrderDetailsCompleted, verifyState.CurrentStep);
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("OutboxConsumer: Saga state not found for SagaId: {SagaId}", evt.SagaId);
+                                    }
                                 }
                             }
                             else if (msg.MessageType == "OrderDetailsFailedEvent")
@@ -93,7 +125,7 @@ namespace OrderService.Background
                                 if (evt != null)
                                 {
                                     // Map to local event shape
-                                    var localEvent = new Messages.Events.OrderDetailsCompletedEvent
+                                    var localEvent = new Shared.Messages.Events.OrderDetailsCompletedEvent
                                     {
                                         SagaId = evt.SagaId,
                                         OrderId = evt.OrderId,
@@ -159,6 +191,8 @@ namespace OrderService.Background
             public Guid SagaId { get; set; }
             public int OrderId { get; set; }
             public List<OrderItemDto> Items { get; set; } = new();
+            public bool Success { get; set; }
+            public string? ErrorMessage { get; set; }
             public DateTime Timestamp { get; set; }
         }
 

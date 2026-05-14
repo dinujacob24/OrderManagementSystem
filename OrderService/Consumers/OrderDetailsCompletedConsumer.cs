@@ -4,7 +4,7 @@ using OrderService.Saga;
 
 namespace OrderService.Consumers
 {
-    public class OrderDetailsCompletedConsumer : IConsumer<OrderDetailsCompletedEvent>
+    public class OrderDetailsCompletedConsumer : IConsumer<Shared.Messages.Events.OrderDetailsCompletedEvent>
     {
         private readonly OrderSagaOrchestrator _sagaOrchestrator;
         private readonly ILogger<OrderDetailsCompletedConsumer> _logger;
@@ -17,7 +17,7 @@ namespace OrderService.Consumers
             _logger = logger;
         }
 
-        public async Task Consume(ConsumeContext<OrderDetailsCompletedEvent> context)
+        public async Task Consume(ConsumeContext<Shared.Messages.Events.OrderDetailsCompletedEvent> context)
         {
             _logger.LogInformation("Received OrderDetailsCompletedEvent for Saga {SagaId}, Success: {Success}", 
                 context.Message.SagaId, context.Message.Success);

@@ -2,11 +2,11 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderDetailsService.Domain;
 using OrderDetailsService.Infrastructure.Database;
-using OrderDetailsService.Messages.Events;
+using Shared.Messages.Events;
 
 namespace OrderDetailsService.Consumers
 {
-    public class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>
+    public class OrderCreatedConsumer : IConsumer<Shared.Messages.Events.OrderCreatedEvent>
     {
         private readonly OrderDetailsDbContext _context;
         private readonly IPublishEndpoint _publishEndpoint;
@@ -22,7 +22,7 @@ namespace OrderDetailsService.Consumers
             _logger = logger;
         }
 
-        public async Task Consume(ConsumeContext<OrderCreatedEvent> context)
+        public async Task Consume(ConsumeContext<Shared.Messages.Events.OrderCreatedEvent> context)
         {
             var message = context.Message;
             _logger.LogInformation("OrderDetailsService: Processing OrderCreated for OrderId: {OrderId}, SagaId: {SagaId}",
@@ -65,11 +65,11 @@ namespace OrderDetailsService.Consumers
 
                 _context.OrderItems.AddRange(orderItems);
                 // Persist order items and the outbox message within the same transaction
-                var outboxEvent = new OrderDetailsCompletedEvent
+                var outboxEvent = new Shared.Messages.Events.OrderDetailsCompletedEvent
                 {
                     SagaId = message.SagaId,
                     OrderId = message.OrderId,
-                    Items = orderItems.Select(oi => new OrderItemDto
+                    Items = orderItems.Select(oi => new Shared.Messages.Events.OrderItemDto
                     {
                         OrderItemId = oi.OrderItemId,
                         ProductId = oi.ProductId,
@@ -78,6 +78,8 @@ namespace OrderDetailsService.Consumers
                         UnitPrice = oi.UnitPrice,
                         TotalPrice = oi.TotalPrice
                     }).ToList(),
+                    Success = true,
+                    ErrorMessage = null,
                     Timestamp = DateTime.UtcNow
                 };
 
@@ -105,13 +107,13 @@ namespace OrderDetailsService.Consumers
             }
         }
 
-        private async Task PublishSuccessEvent(OrderCreatedEvent message, List<OrderItem> orderItems)
+        private async Task PublishSuccessEvent(Shared.Messages.Events.OrderCreatedEvent message, List<OrderItem> orderItems)
         {
-            var completedEvent = new OrderDetailsCompletedEvent
+            var completedEvent = new Shared.Messages.Events.OrderDetailsCompletedEvent
             {
                 SagaId = message.SagaId,
                 OrderId = message.OrderId,
-                Items = orderItems.Select(oi => new OrderItemDto
+                Items = orderItems.Select(oi => new Shared.Messages.Events.OrderItemDto
                 {
                     OrderItemId = oi.OrderItemId,
                     ProductId = oi.ProductId,
@@ -120,6 +122,8 @@ namespace OrderDetailsService.Consumers
                     UnitPrice = oi.UnitPrice,
                     TotalPrice = oi.TotalPrice
                 }).ToList(),
+                Success = true,
+                ErrorMessage = null,
                 Timestamp = DateTime.UtcNow
             };
 
@@ -127,9 +131,9 @@ namespace OrderDetailsService.Consumers
             _logger.LogInformation("OrderDetailsService: Published OrderDetailsCompletedEvent for OrderId: {OrderId}", message.OrderId);
         }
 
-        private async Task PublishFailureEvent(OrderCreatedEvent message, string reason)
+        private async Task PublishFailureEvent(Shared.Messages.Events.OrderCreatedEvent message, string reason)
         {
-            var failedEvent = new OrderDetailsFailedEvent
+            var failedEvent = new Shared.Messages.Events.OrderDetailsFailedEvent
             {
                 SagaId = message.SagaId,
                 OrderId = message.OrderId,

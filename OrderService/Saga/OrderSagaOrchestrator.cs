@@ -5,6 +5,11 @@ using OrderService.DTOs;
 using OrderService.Infrastructure.Database;
 using OrderService.Messages.Commands;
 using OrderService.Messages.Events;
+using Shared.Messages.Events;
+using SharedOrderCreatedEvent = Shared.Messages.Events.OrderCreatedEvent;
+using SharedOrderItemEventDto = Shared.Messages.Events.OrderItemEventDto;
+using SharedOrderDetailsCompletedEvent = Shared.Messages.Events.OrderDetailsCompletedEvent;
+using OrderItemDto = Shared.Messages.Events.OrderItemDto;
 
 namespace OrderService.Saga
 {
@@ -45,12 +50,12 @@ namespace OrderService.Saga
             _logger.LogInformation("Saga {SagaId} started for Order {OrderId}", sagaId, order.OrderId);
 
             // Save OrderCreatedEvent to outbox for reliable delivery to OrderDetailsService
-            var orderCreatedEvent = new OrderCreatedEvent
+            var orderCreatedEvent = new SharedOrderCreatedEvent
             {
                 SagaId = sagaId,
                 OrderId = order.OrderId,
                 CustomerId = order.CustomerId,
-                Items = items.Select(i => new OrderItemEventDto
+                Items = items.Select(i => new SharedOrderItemEventDto
                 {
                     ProductId = i.ProductId,
                     ProductName = i.ProductName,
@@ -63,7 +68,7 @@ namespace OrderService.Saga
 
             var outbox = new Infrastructure.Database.OutboxMessage
             {
-                MessageType = nameof(OrderCreatedEvent),
+                MessageType = nameof(Shared.Messages.Events.OrderCreatedEvent),
                 Payload = System.Text.Json.JsonSerializer.Serialize(orderCreatedEvent),
                 CreatedAt = DateTime.UtcNow,
                 Processed = false
@@ -81,8 +86,11 @@ namespace OrderService.Saga
             return sagaId;
         }
 
-        public async Task HandleOrderDetailsCompleted(OrderDetailsCompletedEvent @event)
+        public async Task HandleOrderDetailsCompleted(Shared.Messages.Events.OrderDetailsCompletedEvent @event)
         {
+            _logger.LogInformation("HandleOrderDetailsCompleted called - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                @event.SagaId, @event.OrderId, @event.Success);
+
             var sagaState = await _dbContext.SagaStates
                 .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
 
@@ -92,8 +100,13 @@ namespace OrderService.Saga
                 return;
             }
 
+            _logger.LogInformation("Found saga state - Current step: {CurrentStep}, IsOrderDetailsCompleted: {IsCompleted}",
+                sagaState.CurrentStep, sagaState.IsOrderDetailsCompleted);
+
             if (@event.Success)
             {
+                _logger.LogInformation("Event Success=true, updating saga state...");
+
                 sagaState.IsOrderDetailsCompleted = true;
                 sagaState.CurrentStep = "OrderDetailsCompleted";
 
@@ -102,9 +115,11 @@ namespace OrderService.Saga
                 {
                     order.Status = OrderStatus.PaymentProcessing;
                     order.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation("Updated order {OrderId} status to PaymentProcessing", order.OrderId);
                 }
 
                 await _dbContext.SaveChangesAsync();
+                _logger.LogInformation("SaveChanges completed - Saga state updated successfully");
 
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
 

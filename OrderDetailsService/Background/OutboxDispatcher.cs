@@ -1,8 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MassTransit;
 using OrderDetailsService.Infrastructure.Database;
-using OrderDetailsService.Messages.Events;
-
+using Shared.Messages.Events;
 namespace OrderDetailsService.Background
 {
     public class OutboxDispatcher : BackgroundService
@@ -31,6 +30,8 @@ namespace OrderDetailsService.Background
 
                     var pending = await db.OutboxMessages
                         .Where(o => !o.Processed)
+                        .Where(o => o.MessageType == nameof(Shared.Messages.Events.OrderDetailsCompletedEvent) 
+                                 || o.MessageType == nameof(OrderDetailsFailedEvent)) // Only process our own events
                         .OrderBy(o => o.CreatedAt)
                         .Take(20)
                         .ToListAsync(stoppingToken);
@@ -39,9 +40,9 @@ namespace OrderDetailsService.Background
                     {
                         try
                         {
-                            if (msg.MessageType == nameof(OrderDetailsCompletedEvent))
+                            if (msg.MessageType == nameof(Shared.Messages.Events.OrderDetailsCompletedEvent))
                             {
-                                var evt = System.Text.Json.JsonSerializer.Deserialize<OrderDetailsCompletedEvent>(msg.Payload);
+                                var evt = System.Text.Json.JsonSerializer.Deserialize<Shared.Messages.Events.OrderDetailsCompletedEvent>(msg.Payload);
                                 if (evt != null)
                                 {
                                     await publishEndpoint.Publish(evt, stoppingToken);

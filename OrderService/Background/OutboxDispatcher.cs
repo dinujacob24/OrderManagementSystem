@@ -31,6 +31,7 @@ namespace OrderService.Background
 
                     var pending = await db.OutboxMessages
                         .Where(o => !o.Processed)
+                        .Where(o => o.MessageType != "OrderCreatedEvent") // Skip OrderCreatedEvent - handled by OrderDetailsService
                         .OrderBy(o => o.CreatedAt)
                         .Take(20)
                         .ToListAsync(stoppingToken);

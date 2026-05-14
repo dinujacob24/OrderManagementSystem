@@ -1,10 +1,12 @@
-namespace OrderDetailsService.Messages.Events
+namespace Shared.Messages.Events
 {
     public record OrderDetailsCompletedEvent
     {
         public Guid SagaId { get; init; }
         public int OrderId { get; init; }
         public List<OrderItemDto> Items { get; init; } = new();
+        public bool Success { get; init; }
+        public string? ErrorMessage { get; init; }
         public DateTime Timestamp { get; init; }
     }
 
