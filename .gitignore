@@ -362,3 +362,10 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 CUSTOMER_SERVICE_GUIDE.md
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+OrderDetailsService/orderdetails.db
+OrderDetailsService/orderdetails.db
