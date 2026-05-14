@@ -1,20 +1,24 @@
 using MediatR;
-using Microsoft.AspNetCore.Mvc;
 
 namespace CustomerService.Features.CreateCustomer;
 
-[ApiController]
-[Route("api/customers")]
-public class CreateCustomerEndpoint : ControllerBase
+public static class CreateCustomerEndpoint
 {
-    private readonly IMediator _mediator;
-    public CreateCustomerEndpoint(IMediator mediator) => _mediator = mediator;
-
-    [HttpPost]
-    public async Task<IActionResult> CreateAsync(
-        [FromBody] CreateCustomerRequest request, CancellationToken ct)
+    public static IEndpointRouteBuilder MapCreateCustomer(this IEndpointRouteBuilder app)
     {
-        var response = await _mediator.Send(new CreateCustomerCommand(request), ct);
-        return Created($"/api/customers/{response.CustomerId}", response);
+        app.MapPost("/api/customers", async (
+            CreateCustomerRequest request,
+            IMediator mediator,
+            CancellationToken ct) =>
+        {
+            var response = await mediator.Send(new CreateCustomerCommand(request), ct);
+            return Results.Created($"/api/customers/{response.CustomerId}", response);
+        })
+        .WithName("CreateCustomer")
+        .WithTags("Customers")
+        .Produces<CreateCustomerResponse>(StatusCodes.Status201Created)
+        .ProducesValidationProblem();
+
+        return app;
     }
 }

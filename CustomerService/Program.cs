@@ -1,5 +1,6 @@
 using CustomerService.Common.Behaviors;
 using CustomerService.Common.Persistence;
+using CustomerService.Features.CreateCustomer;
 using FluentValidation;
 using Mapster;
 using MapsterMapper;
@@ -8,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -49,7 +49,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.MapControllers();
+app.MapCreateCustomer();
 
 app.Run();
 
