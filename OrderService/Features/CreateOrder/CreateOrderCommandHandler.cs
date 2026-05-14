@@ -66,7 +66,7 @@ namespace OrderService.Features.CreateOrder
             _logger.LogInformation("Order {OrderId} created for customer {CustomerId}", order.OrderId, order.CustomerId);
 
             // Map command items to DTOs for saga
-            var itemsForSaga = command.Items.Select(item => new OrderItemDto
+            var itemsForSaga = command.Items.Select(item => new Shared.Messages.Events.OrderItemDto
             {
                 ProductId = item.ProductId,
                 ProductName = item.ProductName,

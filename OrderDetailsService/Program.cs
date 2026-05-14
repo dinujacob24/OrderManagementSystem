@@ -18,23 +18,20 @@ builder.Services.AddScoped<OrderCreatedConsumer>();
 // Register outbox consumer as background service (consumes from OrderService)
 builder.Services.AddHostedService<OrderDetailsService.Background.OutboxConsumer>();
 
-// Register outbox dispatcher as background service (publishes OrderDetailsService events)
-builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatcher>();
+// NOTE: OutboxDispatcher is NOT needed in shared database pattern
+// OrderService will read OrderDetailsCompletedEvent directly from the shared OutboxMessages table
+// builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatcher>();
 
-// MassTransit - Message Bus Configuration
+// MassTransit - Message Bus Configuration (NOT USED in shared database pattern)
+// OrderCreatedConsumer is NOT registered because OrderService publishes to database outbox, not MassTransit
 builder.Services.AddMassTransit(x =>
 {
-    // Register Consumers
-    x.AddConsumer<OrderCreatedConsumer>();
-
     // Use InMemory for development/testing
     x.UsingInMemory((context, cfg) =>
     {
         cfg.ConfigureEndpoints(context);
     });
-
-// Register outbox dispatcher as background service
-builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatcher>();
+});
 
     // For production, use RabbitMQ:
     // x.UsingRabbitMq((context, cfg) =>
@@ -46,7 +43,8 @@ builder.Services.AddHostedService<OrderDetailsService.Background.OutboxDispatche
     //     });
     //     cfg.ConfigureEndpoints(context);
     // });
-});
+//});
+
 
 // CORS Configuration
 builder.Services.AddCors(options =>
@@ -71,8 +69,24 @@ var app = builder.Build();
 // Apply pending migrations and create database
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<OrderDetailsDbContext>();
-    db.Database.EnsureCreated();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<OrderDetailsDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+        // Initialize shared database schema (all tables for both services)
+        OrderDetailsService.Infrastructure.Database.SharedDatabaseInitializer.EnsureSharedDatabaseSchema(connectionString!, logger);
+
+        logger.LogInformation("OrderDetailsService database initialization complete");
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Error initializing database");
+        throw;
+    }
 }
 
 // Configure HTTP pipeline

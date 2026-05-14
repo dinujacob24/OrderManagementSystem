@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using OrderDetailsService.Infrastructure.Database;
-using OrderDetailsService.Messages.Events;
 using System.Text.Json;
+using Shared.Messages.Events;
+using SharedOrderCreatedEvent = Shared.Messages.Events.OrderCreatedEvent;
 
 namespace OrderDetailsService.Background
 {
@@ -38,29 +39,31 @@ namespace OrderDetailsService.Background
                     // Claim unprocessed OrderCreatedEvent messages atomically
                     var claimQuery = @"
                         UPDATE OutboxMessages 
-                        SET LockToken = @p0, LockExpiresAt = @p1, Attempts = Attempts + 1
+                        SET LockToken = {0}, LockExpiresAt = {1}, Attempts = Attempts + 1
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
                             AND MessageType = 'OrderCreatedEvent'
-                            AND Attempts < @p2
-                            AND (LockExpiresAt IS NULL OR LockExpiresAt < @p3)
+                            AND Attempts < {2}
+                            AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
                             LIMIT 20
                         )";
 
                     await db.Database.ExecuteSqlRawAsync(
                         claimQuery,
-                        lockToken,
-                        lockExpiry,
-                        _maxAttempts,
-                        now,
-                        stoppingToken);
+                        cancellationToken: stoppingToken,
+                        parameters: new object[] { lockToken, lockExpiry, _maxAttempts, now });
 
                     // Fetch claimed messages
                     var claimedMessages = await db.OutboxMessages
                         .Where(o => o.LockToken == lockToken)
                         .ToListAsync(stoppingToken);
+
+                    if (claimedMessages.Any())
+                    {
+                        _logger.LogInformation("OutboxConsumer: Found {Count} OrderCreatedEvent messages to process", claimedMessages.Count);
+                    }
 
                     foreach (var msg in claimedMessages)
                     {
@@ -69,7 +72,7 @@ namespace OrderDetailsService.Background
                             _logger.LogInformation("OutboxConsumer: Processing OrderCreatedEvent {Id}, Attempt {Attempt}",
                                 msg.Id, msg.Attempts);
 
-                            var evt = JsonSerializer.Deserialize<OrderCreatedEvent>(msg.Payload);
+                            var evt = JsonSerializer.Deserialize<SharedOrderCreatedEvent>(msg.Payload);
                             if (evt != null)
                             {
                                 // Process the event using the existing consumer logic
@@ -175,6 +178,8 @@ namespace OrderDetailsService.Background
                         UnitPrice = oi.UnitPrice,
                         TotalPrice = oi.TotalPrice
                     }).ToList(),
+                    Success = true,
+                    ErrorMessage = null,
                     Timestamp = DateTime.UtcNow
                 };
 
@@ -214,6 +219,8 @@ namespace OrderDetailsService.Background
                     UnitPrice = oi.UnitPrice,
                     TotalPrice = oi.TotalPrice
                 }).ToList(),
+                Success = true,
+                ErrorMessage = null,
                 Timestamp = DateTime.UtcNow
             };
 

@@ -1,4 +1,4 @@
-namespace OrderDetailsService.Messages.Events
+namespace Shared.Messages.Events
 {
     public record OrderCreatedEvent
     {

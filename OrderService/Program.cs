@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Consumers;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
-using OrderService.Background;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,11 +16,9 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Pro
 // Saga Orchestrator
 builder.Services.AddScoped<OrderSagaOrchestrator>();
 
-// Register outbox consumer as background service (consumes from OrderDetailsService)
-builder.Services.AddHostedService<OutboxConsumer>();
-
-// Register outbox dispatcher as background service (publishes OrderService events)
-builder.Services.AddHostedService<OutboxDispatcher>();
+// Background Services - Outbox Pattern
+builder.Services.AddHostedService<OrderService.Background.OutboxConsumer>();
+builder.Services.AddHostedService<OrderService.Background.OutboxDispatcher>();
 
 // MassTransit - Message Bus Configuration
 builder.Services.AddMassTransit(x =>
@@ -79,8 +76,24 @@ var app = builder.Build();
 // Apply pending migrations and create database
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-    db.Database.EnsureCreated();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+        // Initialize shared database schema (all tables for both services)
+        OrderService.Infrastructure.Database.SharedDatabaseInitializer.EnsureSharedDatabaseSchema(connectionString!, logger);
+
+        logger.LogInformation("OrderService database initialization complete");
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Error initializing database");
+        throw;
+    }
 }
 
 // Configure HTTP pipeline
