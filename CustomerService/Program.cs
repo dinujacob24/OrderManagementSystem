@@ -49,7 +49,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// --- Map vertical-slice minimal API endpoints ---
 app.MapCreateCustomer();
+// app.MapGetCustomerById();
+// app.MapListCustomers();
+// app.MapUpdateCustomer();
+// app.MapDeactivateCustomer();
 
 app.Run();
 
