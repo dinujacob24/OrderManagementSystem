@@ -1,10 +1,9 @@
 using MassTransit;
-using OrderService.Messages.Events;
 using OrderService.Saga;
 
 namespace OrderService.Consumers
 {
-    public class PaymentCompletedConsumer : IConsumer<PaymentCompletedEvent>
+    public class PaymentCompletedConsumer : IConsumer<Shared.Messages.Events.PaymentCompletedEvent>
     {
         private readonly OrderSagaOrchestrator _sagaOrchestrator;
         private readonly ILogger<PaymentCompletedConsumer> _logger;
@@ -17,7 +16,7 @@ namespace OrderService.Consumers
             _logger = logger;
         }
 
-        public async Task Consume(ConsumeContext<PaymentCompletedEvent> context)
+        public async Task Consume(ConsumeContext<Shared.Messages.Events.PaymentCompletedEvent> context)
         {
             _logger.LogInformation("Received PaymentCompletedEvent for Saga {SagaId}, Success: {Success}", 
                 context.Message.SagaId, context.Message.Success);

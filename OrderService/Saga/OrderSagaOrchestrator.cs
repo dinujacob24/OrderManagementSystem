@@ -120,6 +120,8 @@ namespace OrderService.Saga
                     _logger.LogInformation("Updated order {OrderId} status to PaymentProcessing", order.OrderId);
                 }
 
+                // Save saga state and order status changes FIRST
+                await _dbContext.SaveChangesAsync();
                 _logger.LogInformation("SaveChanges completed - Saga state updated successfully");
 
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
@@ -157,6 +159,9 @@ namespace OrderService.Saga
 
         public async Task HandlePaymentCompleted(Shared.Messages.Events.PaymentCompletedEvent @event)
         {
+            _logger.LogInformation("HandlePaymentCompleted called - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                @event.SagaId, @event.OrderId, @event.Success);
+
             var sagaState = await _dbContext.SagaStates
                 .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
 
@@ -166,8 +171,13 @@ namespace OrderService.Saga
                 return;
             }
 
+            _logger.LogInformation("Found saga state - Current step: {CurrentStep}, IsPaymentCompleted: {IsCompleted}",
+                sagaState.CurrentStep, sagaState.IsPaymentCompleted);
+
             if (@event.Success)
             {
+                _logger.LogInformation("Payment Success=true, updating saga state...");
+
                 sagaState.IsPaymentCompleted = true;
                 sagaState.CurrentStep = "PaymentCompleted";
 
@@ -176,9 +186,11 @@ namespace OrderService.Saga
                 {
                     order.Status = OrderStatus.NotificationProcessing;
                     order.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation("Updated order {OrderId} status to NotificationProcessing", order.OrderId);
                 }
 
                 await _dbContext.SaveChangesAsync();
+                _logger.LogInformation("SaveChanges completed - Payment saga state updated successfully");
 
                 _logger.LogInformation("Payment completed for Saga {SagaId}, sending notification", @event.SagaId);
 
