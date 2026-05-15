@@ -5,6 +5,7 @@ using CustomerService.Features.CreateCustomer;
 using CustomerService.Features.DeactivateCustomer;
 using CustomerService.Features.GetCustomerById;
 using CustomerService.Features.ListCustomers;
+using CustomerService.Features.ReactivateCustomer;
 using CustomerService.Features.UpdateCustomer;
 using FluentValidation;
 using Mapster;
@@ -115,6 +116,7 @@ app.MapGetCustomerById();
 app.MapListCustomers();
 app.MapUpdateCustomer();
 app.MapDeactivateCustomer();
+app.MapReactivateCustomer();
 
 app.Run();
 
