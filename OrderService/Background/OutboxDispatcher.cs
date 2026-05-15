@@ -32,9 +32,11 @@ namespace OrderService.Background
 
                     // OutboxDispatcher should ONLY handle messages meant for MassTransit in-memory publishing
                     // NOT messages meant for database outbox pattern (handled by OutboxConsumer or other services)
-                    var allowedTypes = new[] 
+                    // Since we're using database outbox for all cross-service communication, this should be EMPTY
+                    var allowedTypes = new string[] 
                     { 
-                        MessageTypes.SendNotificationCommand  // Only internal MassTransit messages
+                        // Empty - no messages should be published via MassTransit
+                        // All commands/events use database outbox pattern
                     };
 
                     var pending = await db.OutboxMessages

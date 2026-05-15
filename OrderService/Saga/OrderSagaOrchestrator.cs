@@ -3,15 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Domain;
 using OrderService.DTOs;
 using OrderService.Infrastructure.Database;
+using OrderService.Messages.Events;
+using Shared.Messages;
 using Shared.Messages.Commands;
 using Shared.Messages.Events;
-using Shared.Messages.Events;
+using NotificationCompletedEvent = Shared.Messages.Events.NotificationCompletedEvent;
 using SharedOrderCreatedEvent = Shared.Messages.Events.OrderCreatedEvent;
 using SharedOrderItemEventDto = Shared.Messages.Events.OrderItemEventDto;
-using SharedOrderDetailsCompletedEvent = Shared.Messages.Events.OrderDetailsCompletedEvent;
-using OrderItemDto = Shared.Messages.Events.OrderItemDto;
-using OrderService.Messages.Events;
-using OrderService.Messages.Commands;
 
 namespace OrderService.Saga
 {
@@ -31,7 +29,7 @@ namespace OrderService.Saga
             _logger = logger;
         }
 
-        public async Task<Guid> StartOrderSaga(Order order, List<OrderItemDto> items)
+        public async Task<Guid> StartOrderSaga(Order order, List<Shared.Messages.Events.OrderItemDto> items)
         {
             var sagaId = Guid.NewGuid();
 
@@ -190,25 +188,28 @@ namespace OrderService.Saga
 
                 _logger.LogInformation("Payment completed for Saga {SagaId}, sending notification", @event.SagaId);
 
-                // Send command to Notification Service (MassTransit in-memory)
-                try
+                // Send command to Notification Service via database outbox
+                var notificationCommand = new Shared.Messages.Commands.SendNotificationCommand
                 {
-                    await _publishEndpoint.Publish(new SendNotificationCommand
-                    {
-                        SagaId = @event.SagaId,
-                        OrderId = @event.OrderId,
-                        CustomerId = sagaState.CustomerId,
-                        Message = $"Your order #{@event.OrderId} has been successfully placed!",
-                        NotificationType = "OrderConfirmation",
-                        Timestamp = DateTime.UtcNow
-                    });
-                    _logger.LogInformation("SendNotificationCommand published successfully");
-                }
-                catch (Exception ex)
+                    SagaId = @event.SagaId,
+                    OrderId = @event.OrderId,
+                    CustomerId = sagaState.CustomerId,
+                    Message = $"Your order #{@event.OrderId} has been successfully placed!",
+                    NotificationType = "OrderConfirmation",
+                    Timestamp = DateTime.UtcNow
+                };
+
+                var notificationOutbox = new OutboxMessage
                 {
-                    _logger.LogError(ex, "Failed to publish SendNotificationCommand, but saga state was already saved. SagaId: {SagaId}", @event.SagaId);
-                    // Don't throw - saga state is already saved
-                }
+                    Id = Guid.NewGuid(),
+                    MessageType = MessageTypes.SendNotificationCommand,
+                    Payload = System.Text.Json.JsonSerializer.Serialize(notificationCommand),
+                    CreatedAt = DateTime.UtcNow,
+                    Processed = false
+                };
+
+                _dbContext.OutboxMessages.Add(notificationOutbox);
+                _logger.LogInformation("SendNotificationCommand prepared for outbox for OrderId: {OrderId}", @event.OrderId);
             }
             else
             {

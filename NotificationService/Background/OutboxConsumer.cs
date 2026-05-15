@@ -162,7 +162,7 @@ namespace NotificationService.Background
             var outbox = new OutboxMessage
             {
                 Id = Guid.NewGuid(),
-                MessageType = nameof(NotificationCompletedEvent),
+                MessageType = MessageTypes.NotificationCompletedEvent,
                 Payload = JsonSerializer.Serialize(notificationEvent),
                 CreatedAt = DateTime.UtcNow,
                 Processed = false
