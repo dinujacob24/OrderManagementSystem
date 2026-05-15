@@ -46,7 +46,8 @@ namespace OrderService.Background
                     var totalUnprocessed = await db.OutboxMessages
                         .Where(m => (m.MessageType == MessageTypes.OrderDetailsCompletedEvent 
                                   || m.MessageType == MessageTypes.OrderDetailsFailedEvent
-                                  || m.MessageType == MessageTypes.PaymentCompletedEvent) 
+                                  || m.MessageType == MessageTypes.PaymentCompletedEvent
+                                  || m.MessageType == MessageTypes.NotificationCompletedEvent) 
                                   && !m.Processed)
                         .CountAsync(stoppingToken);
 
@@ -80,7 +81,8 @@ namespace OrderService.Background
                             WHERE Processed = 0 
                             AND (MessageType = '" + MessageTypes.OrderDetailsCompletedEvent + @"' 
                                  OR MessageType = '" + MessageTypes.OrderDetailsFailedEvent + @"'
-                                 OR MessageType = '" + MessageTypes.PaymentCompletedEvent + @"')
+                                 OR MessageType = '" + MessageTypes.PaymentCompletedEvent + @"'
+                                 OR MessageType = '" + MessageTypes.NotificationCompletedEvent + @"')
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -175,6 +177,28 @@ namespace OrderService.Background
                                     _logger.LogInformation("OutboxConsumer: HandlePaymentCompleted returned");
                                 }
                             }
+                            else if (msg.MessageType == MessageTypes.NotificationCompletedEvent)
+                            {
+                                var evt = JsonSerializer.Deserialize<NotificationCompletedEventDto>(msg.Payload);
+                                if (evt != null)
+                                {
+                                    _logger.LogInformation("OutboxConsumer: Deserialized NotificationCompletedEvent - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                                        evt.SagaId, evt.OrderId, evt.Success);
+
+                                    var localEvent = new Shared.Messages.Events.NotificationCompletedEvent
+                                    {
+                                        SagaId = evt.SagaId,
+                                        OrderId = evt.OrderId,
+                                        Success = evt.Success,
+                                        ErrorMessage = evt.ErrorMessage,
+                                        Timestamp = evt.Timestamp
+                                    };
+
+                                    await sagaOrchestrator.HandleNotificationCompleted(localEvent);
+
+                                    _logger.LogInformation("OutboxConsumer: HandleNotificationCompleted returned");
+                                }
+                            }
 
                             // Mark as processed
                             msg.Processed = true;
@@ -259,6 +283,15 @@ namespace OrderService.Background
             public int OrderId { get; set; }
             public decimal Amount { get; set; }
             public string? TransactionId { get; set; }
+            public bool Success { get; set; }
+            public string? ErrorMessage { get; set; }
+            public DateTime Timestamp { get; set; }
+        }
+
+        private class NotificationCompletedEventDto
+        {
+            public Guid SagaId { get; set; }
+            public int OrderId { get; set; }
             public bool Success { get; set; }
             public string? ErrorMessage { get; set; }
             public DateTime Timestamp { get; set; }
