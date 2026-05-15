@@ -1,10 +1,17 @@
 using CustomerService.Common.Behaviors;
+using CustomerService.Common.Exceptions;
 using CustomerService.Common.Persistence;
 using CustomerService.Features.CreateCustomer;
+using CustomerService.Features.DeactivateCustomer;
+using CustomerService.Features.GetCustomerById;
+using CustomerService.Features.ListCustomers;
+using CustomerService.Features.UpdateCustomer;
 using FluentValidation;
 using Mapster;
 using MapsterMapper;
 using MediatR;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,6 +43,59 @@ builder.Services.AddScoped<IMapper, ServiceMapper>();
 
 var app = builder.Build();
 
+app.UseExceptionHandler(eh => eh.Run(async ctx =>
+{
+    var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+    ProblemDetails problem = ex switch
+    {
+        FluentValidation.ValidationException ve => new ProblemDetails
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Validation failed",
+            Extensions =
+            {
+                ["errors"] = ve.Errors
+                    .GroupBy(e => e.PropertyName)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray())
+            }
+        },
+        NotFoundException nf => new ProblemDetails
+        {
+            Status = StatusCodes.Status404NotFound,
+            Title = "Resource not found",
+            Detail = nf.Message
+        },
+        ConflictException cf => new ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = "Resource conflict",
+            Detail = cf.Message
+        },
+        DbUpdateException => new ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = "Resource conflict",
+            Detail = "A resource with the same identifier already exists."
+        },
+        BadHttpRequestException bre => new ProblemDetails
+        {
+            Status = bre.StatusCode == 0 ? StatusCodes.Status400BadRequest : bre.StatusCode,
+            Title = "Invalid request",
+            Detail = bre.Message
+        },
+        _ => new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "An unexpected error occurred."
+        }
+    };
+
+    ctx.Response.StatusCode = problem.Status!.Value;
+    ctx.Response.ContentType = "application/problem+json";
+    await ctx.Response.WriteAsJsonAsync(problem);
+}));
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -51,10 +111,10 @@ app.UseHttpsRedirection();
 
 // --- Map vertical-slice minimal API endpoints ---
 app.MapCreateCustomer();
-// app.MapGetCustomerById();
-// app.MapListCustomers();
-// app.MapUpdateCustomer();
-// app.MapDeactivateCustomer();
+app.MapGetCustomerById();
+app.MapListCustomers();
+app.MapUpdateCustomer();
+app.MapDeactivateCustomer();
 
 app.Run();
 
