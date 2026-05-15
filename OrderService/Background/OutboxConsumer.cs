@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
 using System.Text.Json;
+using Shared.Messages;
 
 namespace OrderService.Background
 {
@@ -43,11 +44,27 @@ namespace OrderService.Background
 
                     // Log polling activity
                     var totalUnprocessed = await db.OutboxMessages
-                        .Where(m => (m.MessageType == "OrderDetailsCompletedEvent" 
-                                  || m.MessageType == "OrderDetailsFailedEvent"
-                                  || m.MessageType == "PaymentCompletedEvent") 
+                        .Where(m => (m.MessageType == MessageTypes.OrderDetailsCompletedEvent 
+                                  || m.MessageType == MessageTypes.OrderDetailsFailedEvent
+                                  || m.MessageType == MessageTypes.PaymentCompletedEvent) 
                                   && !m.Processed)
                         .CountAsync(stoppingToken);
+
+                    // Debug: Check what's actually in the database
+                    var allMessages = await db.OutboxMessages
+                        .OrderByDescending(m => m.CreatedAt)
+                        .Take(10)
+                        .Select(m => new { m.Id, m.MessageType, m.Processed, m.CreatedAt })
+                        .ToListAsync(stoppingToken);
+
+                    _logger.LogInformation("DEBUG: Total messages in DB (last 10): {Count}", allMessages.Count);
+                    foreach (var m in allMessages)
+                    {
+                        _logger.LogInformation("DEBUG:   - Id: {Id}, Type: '{MessageType}', Processed: {Processed}, Created: {Created}", 
+                            m.Id, m.MessageType, m.Processed, m.CreatedAt);
+                    }
+
+                    _logger.LogInformation("DEBUG: Query returned {Count} unprocessed matching messages", totalUnprocessed);
 
                     if (totalUnprocessed > 0)
                     {
@@ -61,9 +78,9 @@ namespace OrderService.Background
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND (MessageType = 'OrderDetailsCompletedEvent' 
-                                 OR MessageType = 'OrderDetailsFailedEvent'
-                                 OR MessageType = 'PaymentCompletedEvent')
+                            AND (MessageType = '" + MessageTypes.OrderDetailsCompletedEvent + @"' 
+                                 OR MessageType = '" + MessageTypes.OrderDetailsFailedEvent + @"'
+                                 OR MessageType = '" + MessageTypes.PaymentCompletedEvent + @"')
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -87,9 +104,14 @@ namespace OrderService.Background
                             _logger.LogInformation("OutboxConsumer: Processing message {Id} of type {Type}, Attempt {Attempt}",
                                 msg.Id, msg.MessageType, msg.Attempts);
 
-                            // Process based on message type
-                            if (msg.MessageType == "OrderDetailsCompletedEvent")
+                            // Use explicit transaction to ensure atomicity
+                            await using var transaction = await db.Database.BeginTransactionAsync(stoppingToken);
+
+                            try
                             {
+                                // Process based on message type
+                                if (msg.MessageType == MessageTypes.OrderDetailsCompletedEvent)
+                                {
                                 var evt = JsonSerializer.Deserialize<OrderDetailsCompletedEventDto>(msg.Payload);
                                 if (evt != null)
                                 {
@@ -106,23 +128,11 @@ namespace OrderService.Background
                                         Timestamp = evt.Timestamp
                                     };
 
-                                    await sagaOrchestrator.HandleOrderDetailsCompleted(localEvent);
+                                            await sagaOrchestrator.HandleOrderDetailsCompleted(localEvent);
 
-                                    _logger.LogInformation("OutboxConsumer: HandleOrderDetailsCompleted returned, checking if saga state was updated...");
-
-                                    // Verify the saga state was actually updated
-                                    var verifyState = await db.SagaStates.FirstOrDefaultAsync(s => s.SagaId == evt.SagaId, stoppingToken);
-                                    if (verifyState != null)
-                                    {
-                                        _logger.LogInformation("OutboxConsumer: Saga state verification - IsOrderDetailsCompleted: {IsCompleted}, CurrentStep: {Step}",
-                                            verifyState.IsOrderDetailsCompleted, verifyState.CurrentStep);
+                                            _logger.LogInformation("OutboxConsumer: HandleOrderDetailsCompleted returned successfully");
+                                        }
                                     }
-                                    else
-                                    {
-                                        _logger.LogWarning("OutboxConsumer: Saga state not found for SagaId: {SagaId}", evt.SagaId);
-                                    }
-                                }
-                            }
                             else if (msg.MessageType == "OrderDetailsFailedEvent")
                             {
                                 var evt = JsonSerializer.Deserialize<OrderDetailsFailedEventDto>(msg.Payload);
@@ -176,7 +186,18 @@ namespace OrderService.Background
                             db.OutboxMessages.Update(msg);
                             await db.SaveChangesAsync(stoppingToken);
 
-                            _logger.LogInformation("OutboxConsumer: Successfully processed message {Id}", msg.Id);
+                            // Commit the entire transaction (saga state + outbox message)
+                            await transaction.CommitAsync(stoppingToken);
+
+                            _logger.LogInformation("OutboxConsumer: Successfully processed message {Id} and committed transaction", msg.Id);
+                            }
+                            catch (Exception innerEx)
+                            {
+                                // Rollback transaction on any error
+                                await transaction.RollbackAsync(stoppingToken);
+                                _logger.LogError(innerEx, "OutboxConsumer: Transaction rolled back for message {Id}", msg.Id);
+                                throw; // Re-throw to outer catch
+                            }
                         }
                         catch (Exception ex)
                         {

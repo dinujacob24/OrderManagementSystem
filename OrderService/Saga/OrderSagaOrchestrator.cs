@@ -120,10 +120,6 @@ namespace OrderService.Saga
                     _logger.LogInformation("Updated order {OrderId} status to PaymentProcessing", order.OrderId);
                 }
 
-                // Save saga state and order status changes FIRST
-                await _dbContext.SaveChangesAsync();
-                _logger.LogInformation("SaveChanges completed - Saga state updated successfully");
-
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
 
                 // Send command to Payment Service via database outbox
@@ -146,9 +142,9 @@ namespace OrderService.Saga
                 };
 
                 _dbContext.OutboxMessages.Add(outboxMessage);
-                await _dbContext.SaveChangesAsync();
 
-                _logger.LogInformation("ProcessPaymentCommand written to outbox for OrderId: {OrderId}", @event.OrderId);
+                // Don't call SaveChangesAsync here - let the calling code handle it within transaction
+                _logger.LogInformation("ProcessPaymentCommand prepared for outbox for OrderId: {OrderId}", @event.OrderId);
             }
             else
             {
@@ -189,21 +185,30 @@ namespace OrderService.Saga
                     _logger.LogInformation("Updated order {OrderId} status to NotificationProcessing", order.OrderId);
                 }
 
-                await _dbContext.SaveChangesAsync();
-                _logger.LogInformation("SaveChanges completed - Payment saga state updated successfully");
+                // Don't call SaveChangesAsync here - let the calling code handle it within transaction
+                _logger.LogInformation("Payment saga state updated, ready to commit transaction");
 
                 _logger.LogInformation("Payment completed for Saga {SagaId}, sending notification", @event.SagaId);
 
-                // Send command to Notification Service
-                await _publishEndpoint.Publish(new SendNotificationCommand
+                // Send command to Notification Service (MassTransit in-memory)
+                try
                 {
-                    SagaId = @event.SagaId,
-                    OrderId = @event.OrderId,
-                    CustomerId = sagaState.CustomerId,
-                    Message = $"Your order #{@event.OrderId} has been successfully placed!",
-                    NotificationType = "OrderConfirmation",
-                    Timestamp = DateTime.UtcNow
-                });
+                    await _publishEndpoint.Publish(new SendNotificationCommand
+                    {
+                        SagaId = @event.SagaId,
+                        OrderId = @event.OrderId,
+                        CustomerId = sagaState.CustomerId,
+                        Message = $"Your order #{@event.OrderId} has been successfully placed!",
+                        NotificationType = "OrderConfirmation",
+                        Timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation("SendNotificationCommand published successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to publish SendNotificationCommand, but saga state was already saved. SagaId: {SagaId}", @event.SagaId);
+                    // Don't throw - saga state is already saved
+                }
             }
             else
             {

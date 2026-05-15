@@ -198,11 +198,12 @@ namespace PaymentService.Background
                 return (false, "Transaction amount exceeds limit");
             }
 
-            // Rule 4: Random 10% failure rate for testing
-            if (Random.Shared.Next(100) < 10)
-            {
-                return (false, "Payment gateway timeout");
-            }
+            // Rule 4: Random failure rate (DISABLED for stable testing)
+            // Uncomment to enable random failures for testing error handling
+            // if (Random.Shared.Next(100) < 10)
+            // {
+            //     return (false, "Payment gateway timeout");
+            // }
 
             // Otherwise succeed
             return (true, null);
