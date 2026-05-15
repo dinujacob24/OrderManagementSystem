@@ -3,15 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using OrderService.Domain;
 using OrderService.DTOs;
 using OrderService.Infrastructure.Database;
+using OrderService.Messages.Events;
+using Shared.Messages;
 using Shared.Messages.Commands;
 using Shared.Messages.Events;
-using Shared.Messages.Events;
+using NotificationCompletedEvent = Shared.Messages.Events.NotificationCompletedEvent;
 using SharedOrderCreatedEvent = Shared.Messages.Events.OrderCreatedEvent;
 using SharedOrderItemEventDto = Shared.Messages.Events.OrderItemEventDto;
-using SharedOrderDetailsCompletedEvent = Shared.Messages.Events.OrderDetailsCompletedEvent;
-using OrderItemDto = Shared.Messages.Events.OrderItemDto;
-using OrderService.Messages.Events;
-using OrderService.Messages.Commands;
 
 namespace OrderService.Saga
 {
@@ -31,7 +29,7 @@ namespace OrderService.Saga
             _logger = logger;
         }
 
-        public async Task<Guid> StartOrderSaga(Order order, List<OrderItemDto> items)
+        public async Task<Guid> StartOrderSaga(Order order, List<Shared.Messages.Events.OrderItemDto> items)
         {
             var sagaId = Guid.NewGuid();
 
@@ -120,8 +118,6 @@ namespace OrderService.Saga
                     _logger.LogInformation("Updated order {OrderId} status to PaymentProcessing", order.OrderId);
                 }
 
-                _logger.LogInformation("SaveChanges completed - Saga state updated successfully");
-
                 _logger.LogInformation("Order details completed for Saga {SagaId}, initiating payment", @event.SagaId);
 
                 // Send command to Payment Service via database outbox
@@ -144,9 +140,9 @@ namespace OrderService.Saga
                 };
 
                 _dbContext.OutboxMessages.Add(outboxMessage);
-                await _dbContext.SaveChangesAsync();
 
-                _logger.LogInformation("ProcessPaymentCommand written to outbox for OrderId: {OrderId}", @event.OrderId);
+                // Don't call SaveChangesAsync here - let the calling code handle it within transaction
+                _logger.LogInformation("ProcessPaymentCommand prepared for outbox for OrderId: {OrderId}", @event.OrderId);
             }
             else
             {
@@ -157,6 +153,9 @@ namespace OrderService.Saga
 
         public async Task HandlePaymentCompleted(Shared.Messages.Events.PaymentCompletedEvent @event)
         {
+            _logger.LogInformation("HandlePaymentCompleted called - SagaId: {SagaId}, OrderId: {OrderId}, Success: {Success}",
+                @event.SagaId, @event.OrderId, @event.Success);
+
             var sagaState = await _dbContext.SagaStates
                 .FirstOrDefaultAsync(s => s.SagaId == @event.SagaId);
 
@@ -166,8 +165,13 @@ namespace OrderService.Saga
                 return;
             }
 
+            _logger.LogInformation("Found saga state - Current step: {CurrentStep}, IsPaymentCompleted: {IsCompleted}",
+                sagaState.CurrentStep, sagaState.IsPaymentCompleted);
+
             if (@event.Success)
             {
+                _logger.LogInformation("Payment Success=true, updating saga state...");
+
                 sagaState.IsPaymentCompleted = true;
                 sagaState.CurrentStep = "PaymentCompleted";
 
@@ -176,14 +180,16 @@ namespace OrderService.Saga
                 {
                     order.Status = OrderStatus.NotificationProcessing;
                     order.UpdatedAt = DateTime.UtcNow;
+                    _logger.LogInformation("Updated order {OrderId} status to NotificationProcessing", order.OrderId);
                 }
 
-                await _dbContext.SaveChangesAsync();
+                // Don't call SaveChangesAsync here - let the calling code handle it within transaction
+                _logger.LogInformation("Payment saga state updated, ready to commit transaction");
 
                 _logger.LogInformation("Payment completed for Saga {SagaId}, sending notification", @event.SagaId);
 
-                // Send command to Notification Service
-                await _publishEndpoint.Publish(new SendNotificationCommand
+                // Send command to Notification Service via database outbox
+                var notificationCommand = new Shared.Messages.Commands.SendNotificationCommand
                 {
                     SagaId = @event.SagaId,
                     OrderId = @event.OrderId,
@@ -191,7 +197,19 @@ namespace OrderService.Saga
                     Message = $"Your order #{@event.OrderId} has been successfully placed!",
                     NotificationType = "OrderConfirmation",
                     Timestamp = DateTime.UtcNow
-                });
+                };
+
+                var notificationOutbox = new OutboxMessage
+                {
+                    Id = Guid.NewGuid(),
+                    MessageType = MessageTypes.SendNotificationCommand,
+                    Payload = System.Text.Json.JsonSerializer.Serialize(notificationCommand),
+                    CreatedAt = DateTime.UtcNow,
+                    Processed = false
+                };
+
+                _dbContext.OutboxMessages.Add(notificationOutbox);
+                _logger.LogInformation("SendNotificationCommand prepared for outbox for OrderId: {OrderId}", @event.OrderId);
             }
             else
             {

@@ -1,6 +1,7 @@
 using MassTransit;
-using OrderService.Messages.Events;
+//using OrderService.Messages.Events;
 using OrderService.Saga;
+using NotificationCompletedEvent = Shared.Messages.Events.NotificationCompletedEvent;
 
 namespace OrderService.Consumers
 {
