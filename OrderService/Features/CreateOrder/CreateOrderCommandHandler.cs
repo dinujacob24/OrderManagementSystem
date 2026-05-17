@@ -1,6 +1,7 @@
 using MediatR;
 using OrderService.Domain;
 using OrderService.DTOs;
+using OrderService.Infrastructure.CustomerClient;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
 
@@ -22,15 +23,18 @@ namespace OrderService.Features.CreateOrder
     {
         private readonly OrderDbContext _dbContext;
         private readonly OrderSagaOrchestrator _sagaOrchestrator;
+        private readonly ICustomerValidationClient _customerValidation;
         private readonly ILogger<CreateOrderCommandHandler> _logger;
 
         public CreateOrderCommandHandler(
             OrderDbContext dbContext,
             OrderSagaOrchestrator sagaOrchestrator,
+            ICustomerValidationClient customerValidation,
             ILogger<CreateOrderCommandHandler> logger)
         {
             _dbContext = dbContext;
             _sagaOrchestrator = sagaOrchestrator;
+            _customerValidation = customerValidation;
             _logger = logger;
         }
 
@@ -45,6 +49,15 @@ namespace OrderService.Features.CreateOrder
             if (command.Items == null || !command.Items.Any())
             {
                 throw new ArgumentException("At least one order item is required");
+            }
+
+            // Gatekeeper: confirm customer exists and is Active before starting the saga.
+            var validation = await _customerValidation.ValidateAsync(command.CustomerId, cancellationToken);
+            if (!validation.IsValid)
+            {
+                _logger.LogWarning("Order rejected for customer {CustomerId}: {Reason}",
+                    command.CustomerId, validation.Reason);
+                throw new ArgumentException(validation.Reason!);
             }
 
             // Calculate total amount
