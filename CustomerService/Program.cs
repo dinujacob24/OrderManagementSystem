@@ -120,3 +120,5 @@ app.MapReactivateCustomer();
 
 app.Run();
 
+public partial class Program { }
+
