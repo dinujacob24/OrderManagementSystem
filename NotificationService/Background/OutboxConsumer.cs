@@ -1,10 +1,11 @@
 using Microsoft.EntityFrameworkCore;
-using PaymentService.Infrastructure.Database;
-using PaymentService.Domain;
+using NotificationService.Infrastructure.Database;
+using NotificationService.Domain;
 using System.Text.Json;
+using Shared.Messages;
 using Shared.Messages.Events;
 
-namespace PaymentService.Background
+namespace NotificationService.Background
 {
     public class OutboxConsumer : BackgroundService
     {
@@ -22,27 +23,27 @@ namespace PaymentService.Background
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("PaymentService OutboxConsumer started - polling for ProcessPaymentCommand");
+            _logger.LogInformation("NotificationService OutboxConsumer started - polling for SendNotificationCommand");
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
-                    var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+                    var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
 
                     var now = DateTime.UtcNow;
                     var lockToken = Guid.NewGuid();
                     var lockExpiry = now.Add(_lockDuration);
 
-                    // Check for unprocessed payment commands
+                    // Check for unprocessed notification commands
                     var totalUnprocessed = await db.OutboxMessages
-                        .Where(m => m.MessageType == "ProcessPaymentCommand" && !m.Processed)
+                        .Where(m => m.MessageType == MessageTypes.SendNotificationCommand && !m.Processed)
                         .CountAsync(stoppingToken);
 
                     if (totalUnprocessed > 0)
                     {
-                        _logger.LogInformation("PaymentService: Found {Count} unprocessed payment commands", totalUnprocessed);
+                        _logger.LogInformation("NotificationService: Found {Count} unprocessed notification commands", totalUnprocessed);
                     }
 
                     // Claim messages atomically
@@ -52,7 +53,7 @@ namespace PaymentService.Background
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND MessageType = 'ProcessPaymentCommand'
+                            AND MessageType = '" + MessageTypes.SendNotificationCommand + @"'
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -72,12 +73,12 @@ namespace PaymentService.Background
                     {
                         try
                         {
-                            _logger.LogInformation("PaymentService: Processing payment command {Id}", msg.Id);
+                            _logger.LogInformation("NotificationService: Processing notification command {Id}", msg.Id);
 
-                            var command = JsonSerializer.Deserialize<ProcessPaymentCommandDto>(msg.Payload);
+                            var command = JsonSerializer.Deserialize<SendNotificationCommandDto>(msg.Payload);
                             if (command != null)
                             {
-                                await ProcessPayment(db, command, stoppingToken);
+                                await SendNotification(db, command, stoppingToken);
                             }
 
                             // Mark as processed
@@ -90,11 +91,11 @@ namespace PaymentService.Background
                             db.OutboxMessages.Update(msg);
                             await db.SaveChangesAsync(stoppingToken);
 
-                            _logger.LogInformation("PaymentService: Successfully processed command {Id}", msg.Id);
+                            _logger.LogInformation("NotificationService: Successfully processed command {Id}", msg.Id);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "PaymentService: Failed to process command {Id}", msg.Id);
+                            _logger.LogError(ex, "NotificationService: Failed to process command {Id}", msg.Id);
 
                             msg.LastError = ex.Message;
                             msg.LockToken = null;
@@ -113,58 +114,56 @@ namespace PaymentService.Background
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "PaymentService: Error in polling loop");
+                    _logger.LogError(ex, "NotificationService: Error in polling loop");
                 }
 
                 await Task.Delay(_interval, stoppingToken);
             }
         }
 
-        private async Task ProcessPayment(PaymentDbContext db, ProcessPaymentCommandDto command, CancellationToken cancellationToken)
+        private async Task SendNotification(NotificationDbContext db, SendNotificationCommandDto command, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("PaymentService: Processing payment for OrderId: {OrderId}, Amount: {Amount}",
-                command.OrderId, command.Amount);
+            _logger.LogInformation("NotificationService: Sending notification for OrderId: {OrderId}, Type: {Type}",
+                command.OrderId, command.NotificationType);
 
-            // Create payment record
-            var payment = new Payment
+            // Create notification record
+            var notification = new Notification
             {
                 SagaId = command.SagaId,
                 OrderId = command.OrderId,
                 CustomerId = command.CustomerId,
-                Amount = command.Amount,
-                Status = "Processing",
+                Message = command.Message,
+                NotificationType = command.NotificationType,
+                Status = "Sending",
+                Recipient = $"{command.CustomerId}@example.com", // Mock email
                 CreatedAt = DateTime.UtcNow
             };
 
-            db.Payments.Add(payment);
+            db.Notifications.Add(notification);
             await db.SaveChangesAsync(cancellationToken);
 
-            // Simulate payment processing with configurable success/failure
-            var (success, errorMessage) = SimulatePaymentProcessing(command);
+            // Simulate notification sending (always succeeds for now)
+            var (success, errorMessage) = SimulateNotificationSending(command);
 
-            payment.Status = success ? "Completed" : "Failed";
-            payment.ProcessedAt = DateTime.UtcNow;
-            payment.ErrorMessage = errorMessage;
-            payment.TransactionId = success ? $"TXN-{Guid.NewGuid().ToString().Substring(0, 8).ToUpper()}" : null;
-            payment.PaymentMethod = "SimulatedPayment";
+            notification.Status = success ? "Sent" : "Failed";
+            notification.SentAt = DateTime.UtcNow;
+            notification.ErrorMessage = errorMessage;
 
-            // Create payment completed/failed event
-            var paymentEvent = new PaymentCompletedEvent
+            // Create notification completed event
+            var notificationEvent = new NotificationCompletedEvent
             {
                 SagaId = command.SagaId,
                 OrderId = command.OrderId,
-                Amount = command.Amount,
                 Success = success,
                 ErrorMessage = errorMessage,
-                TransactionId = payment.TransactionId,
                 Timestamp = DateTime.UtcNow
             };
 
             var outbox = new OutboxMessage
             {
                 Id = Guid.NewGuid(),
-                MessageType = nameof(PaymentCompletedEvent),
-                Payload = JsonSerializer.Serialize(paymentEvent),
+                MessageType = MessageTypes.NotificationCompletedEvent,
+                Payload = JsonSerializer.Serialize(notificationEvent),
                 CreatedAt = DateTime.UtcNow,
                 Processed = false
             };
@@ -172,49 +171,29 @@ namespace PaymentService.Background
             db.OutboxMessages.Add(outbox);
             await db.SaveChangesAsync(cancellationToken);
 
-            _logger.LogInformation("PaymentService: Payment {Status} for OrderId: {OrderId}, TransactionId: {TxnId}",
-                payment.Status, command.OrderId, payment.TransactionId ?? "N/A");
+            _logger.LogInformation("NotificationService: Notification {Status} for OrderId: {OrderId}",
+                notification.Status, command.OrderId);
         }
 
-        private (bool success, string? errorMessage) SimulatePaymentProcessing(ProcessPaymentCommandDto command)
+        private (bool success, string? errorMessage) SimulateNotificationSending(SendNotificationCommandDto command)
         {
-            // Simulate payment scenarios based on amount or customer ID
+            // For mock purposes, always succeed
+            // In real implementation, integrate with:
+            // - SendGrid/AWS SES for email
+            // - Twilio for SMS
+            // - Firebase for push notifications
 
-            // Rule 1: Amounts ending in .99 fail (insufficient funds)
-            if (command.Amount % 1 == 0.99m)
-            {
-                return (false, "Insufficient funds");
-            }
-
-            // Rule 2: CustomerId containing "fail" fails (card declined)
-            if (command.CustomerId.Contains("fail", StringComparison.OrdinalIgnoreCase))
-            {
-                return (false, "Payment card declined");
-            }
-
-            // Rule 3: Amounts over 10000 fail (transaction limit exceeded)
-            if (command.Amount > 10000)
-            {
-                return (false, "Transaction amount exceeds limit");
-            }
-
-            // Rule 4: Random failure rate (DISABLED for stable testing)
-            // Uncomment to enable random failures for testing error handling
-            // if (Random.Shared.Next(100) < 10)
-            // {
-            //     return (false, "Payment gateway timeout");
-            // }
-
-            // Otherwise succeed
+            _logger.LogInformation("Mock notification sent: {Message}", command.Message);
             return (true, null);
         }
 
-        private class ProcessPaymentCommandDto
+        private class SendNotificationCommandDto
         {
             public Guid SagaId { get; set; }
             public int OrderId { get; set; }
             public string CustomerId { get; set; } = string.Empty;
-            public decimal Amount { get; set; }
+            public string Message { get; set; } = string.Empty;
+            public string NotificationType { get; set; } = string.Empty;
             public DateTime Timestamp { get; set; }
         }
     }
