@@ -1,6 +1,7 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Consumers;
+using OrderService.Infrastructure.CustomerClient;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
 
@@ -12,6 +13,14 @@ builder.Services.AddDbContext<OrderDbContext>(options =>
 
 // MediatR for CQRS
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Program).Assembly));
+
+// Customer Service HTTP client (Option A — synchronous customer validation)
+builder.Services.AddHttpClient<ICustomerValidationClient, CustomerValidationClient>(client =>
+{
+    var baseUrl = builder.Configuration["CustomerService:BaseUrl"]
+        ?? throw new InvalidOperationException("Missing configuration: CustomerService:BaseUrl");
+    client.BaseAddress = new Uri(baseUrl);
+});
 
 // Saga Orchestrator
 builder.Services.AddScoped<OrderSagaOrchestrator>();
