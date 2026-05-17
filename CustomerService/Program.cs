@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CustomerService.Common.Behaviors;
 using CustomerService.Common.Exceptions;
 using CustomerService.Common.Persistence;
@@ -14,6 +15,7 @@ using MediatR;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,6 +33,12 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddDbContext<CustomerDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<CustomerDbContext>(
+        name: "database",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: new[] { "ready", "db" });
 
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
@@ -109,6 +117,46 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// --- Health checks ---
+// /health           — full snapshot of every registered check
+// /health/live      — liveness only (process is up; no dependencies probed)
+// /health/ready     — readiness (only checks tagged "ready", e.g. database)
+var healthWriter = async (HttpContext ctx, HealthReport report) =>
+{
+    ctx.Response.ContentType = "application/json";
+    var payload = new
+    {
+        status = report.Status.ToString(),
+        totalDurationMs = report.TotalDuration.TotalMilliseconds,
+        checks = report.Entries.Select(e => new
+        {
+            name = e.Key,
+            status = e.Value.Status.ToString(),
+            durationMs = e.Value.Duration.TotalMilliseconds,
+            description = e.Value.Description,
+            error = e.Value.Exception?.Message,
+            tags = e.Value.Tags
+        })
+    };
+    await ctx.Response.WriteAsync(JsonSerializer.Serialize(payload,
+        new JsonSerializerOptions { WriteIndented = true }));
+};
+
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = healthWriter
+});
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = healthWriter
+});
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = c => c.Tags.Contains("ready"),
+    ResponseWriter = healthWriter
+});
 
 // --- Map vertical-slice minimal API endpoints ---
 app.MapCreateCustomer();
