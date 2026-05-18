@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="CustomerService/CustomerService.csproj" />
+  <Project Path="CustomerService.Tests/CustomerService.Tests.csproj" />
   <Project Path="NotificationService/NotificationService.csproj" />
   <Project Path="OrderDetailsService/OrderDetailsService.csproj" />
   <Project Path="OrderService/OrderService.csproj" Id="93df0a06-8cb5-4939-8881-95da900aafba" />
