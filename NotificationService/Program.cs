@@ -14,6 +14,9 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<NotificationDbContext>(options =>
     options.UseSqlite(connectionString));
 
+// Register consumers for DI
+builder.Services.AddScoped<NotificationService.Consumers.OrderCancelledConsumer>();
+
 // Background services
 builder.Services.AddHostedService<OutboxConsumer>();
 

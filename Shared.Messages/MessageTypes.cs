@@ -14,6 +14,7 @@ namespace Shared.Messages
         public const string PaymentFailedEvent = nameof(PaymentFailedEvent);
         public const string NotificationCompletedEvent = nameof(NotificationCompletedEvent);
         public const string OrderCompletedEvent = nameof(OrderCompletedEvent);
+        public const string OrderCancelledEvent = nameof(OrderCancelledEvent);
 
         // Commands
         public const string ProcessPaymentCommand = nameof(ProcessPaymentCommand);

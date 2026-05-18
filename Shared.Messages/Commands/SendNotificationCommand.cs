@@ -4,7 +4,7 @@ namespace Shared.Messages.Commands
     {
         public Guid SagaId { get; init; }
         public int OrderId { get; init; }
-        public string CustomerId { get; init; } = string.Empty;
+        public string CustomerId { get; init; } 
         public string Message { get; init; } = string.Empty;
         public string NotificationType { get; init; } = string.Empty;
         public DateTime Timestamp { get; init; }

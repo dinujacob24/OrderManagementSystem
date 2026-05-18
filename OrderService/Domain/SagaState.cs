@@ -7,7 +7,7 @@ namespace OrderService.Domain
         [Key]
         public Guid SagaId { get; set; }
         public int OrderId { get; set; }
-        public string CustomerId { get; set; } = string.Empty;
+        public string CustomerId { get; set; } 
         public string CurrentStep { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
         public DateTime StartedAt { get; set; }

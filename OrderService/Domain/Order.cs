@@ -12,5 +12,17 @@ namespace OrderService.Domain
         public string Status { get; set; } = OrderStatus.Pending;
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
+
+        public void Cancel(string reason)
+        {
+            Status = OrderStatus.Cancelled;
+            UpdatedAt = DateTime.UtcNow;
+        }
+
+        public void MarkAsRefunded()
+        {
+            Status = OrderStatus.Refunded;
+            UpdatedAt = DateTime.UtcNow;
+        }
     }
 }

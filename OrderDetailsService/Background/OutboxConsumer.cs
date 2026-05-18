@@ -43,7 +43,7 @@ namespace OrderDetailsService.Background
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND MessageType = 'OrderCreatedEvent'
+                            AND MessageType IN ('OrderCreatedEvent', 'order-cancelled')
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -62,21 +62,31 @@ namespace OrderDetailsService.Background
 
                     if (claimedMessages.Any())
                     {
-                        _logger.LogInformation("OutboxConsumer: Found {Count} OrderCreatedEvent messages to process", claimedMessages.Count);
+                        _logger.LogInformation("OutboxConsumer: Found {Count} messages to process", claimedMessages.Count);
                     }
 
                     foreach (var msg in claimedMessages)
                     {
                         try
                         {
-                            _logger.LogInformation("OutboxConsumer: Processing OrderCreatedEvent {Id}, Attempt {Attempt}",
-                                msg.Id, msg.Attempts);
+                            _logger.LogInformation("OutboxConsumer: Processing {MessageType} {Id}, Attempt {Attempt}",
+                                msg.MessageType, msg.Id, msg.Attempts);
 
-                            var evt = JsonSerializer.Deserialize<SharedOrderCreatedEvent>(msg.Payload);
-                            if (evt != null)
+                            if (msg.MessageType == "OrderCreatedEvent")
                             {
-                                // Process the event using the existing consumer logic
-                                await ProcessOrderCreatedEvent(evt, scope);
+                                var evt = JsonSerializer.Deserialize<SharedOrderCreatedEvent>(msg.Payload);
+                                if (evt != null)
+                                {
+                                    await ProcessOrderCreatedEvent(evt, scope);
+                                }
+                            }
+                            else if (msg.MessageType == "order-cancelled")
+                            {
+                                var evt = JsonSerializer.Deserialize<OrderCancelledEvent>(msg.Payload);
+                                if (evt != null)
+                                {
+                                    await ProcessOrderCancelledEvent(evt, scope);
+                                }
                             }
 
                             // Mark as processed
@@ -89,7 +99,7 @@ namespace OrderDetailsService.Background
                             db.OutboxMessages.Update(msg);
                             await db.SaveChangesAsync(stoppingToken);
 
-                            _logger.LogInformation("OutboxConsumer: Successfully processed OrderCreatedEvent {Id}", msg.Id);
+                            _logger.LogInformation("OutboxConsumer: Successfully processed {MessageType} {Id}", msg.MessageType, msg.Id);
                         }
                         catch (Exception ex)
                         {
@@ -257,5 +267,14 @@ namespace OrderDetailsService.Background
             context.OutboxMessages.Add(outbox);
             await context.SaveChangesAsync();
         }
+
+        private async Task ProcessOrderCancelledEvent(OrderCancelledEvent message, IServiceScope scope)
+        {
+            var context = scope.ServiceProvider.GetRequiredService<OrderDetailsDbContext>();
+            var orderCancelledConsumer = scope.ServiceProvider.GetRequiredService<Consumers.OrderCancelledConsumer>();
+
+            await orderCancelledConsumer.ConsumeAsync(message);
+        }
     }
 }
+

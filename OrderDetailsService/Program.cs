@@ -14,6 +14,7 @@ builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Pro
 
 // Register consumers for DI
 builder.Services.AddScoped<OrderCreatedConsumer>();
+builder.Services.AddScoped<OrderCancelledConsumer>();
 
 // Register outbox consumer as background service (consumes from OrderService)
 builder.Services.AddHostedService<OrderDetailsService.Background.OutboxConsumer>();

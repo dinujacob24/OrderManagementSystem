@@ -38,7 +38,7 @@ namespace NotificationService.Background
 
                     // Check for unprocessed notification commands
                     var totalUnprocessed = await db.OutboxMessages
-                        .Where(m => m.MessageType == MessageTypes.SendNotificationCommand && !m.Processed)
+                        .Where(m => (m.MessageType == MessageTypes.SendNotificationCommand || m.MessageType == "order-cancelled") && !m.Processed)
                         .CountAsync(stoppingToken);
 
                     if (totalUnprocessed > 0)
@@ -53,7 +53,7 @@ namespace NotificationService.Background
                         WHERE Id IN (
                             SELECT Id FROM OutboxMessages 
                             WHERE Processed = 0 
-                            AND MessageType = '" + MessageTypes.SendNotificationCommand + @"'
+                            AND MessageType IN ('" + MessageTypes.SendNotificationCommand + @"', 'order-cancelled')
                             AND Attempts < {2}
                             AND (LockExpiresAt IS NULL OR LockExpiresAt < {3})
                             ORDER BY CreatedAt
@@ -73,12 +73,23 @@ namespace NotificationService.Background
                     {
                         try
                         {
-                            _logger.LogInformation("NotificationService: Processing notification command {Id}", msg.Id);
+                            _logger.LogInformation("NotificationService: Processing {MessageType} {Id}", msg.MessageType, msg.Id);
 
-                            var command = JsonSerializer.Deserialize<SendNotificationCommandDto>(msg.Payload);
-                            if (command != null)
+                            if (msg.MessageType == MessageTypes.SendNotificationCommand)
                             {
-                                await SendNotification(db, command, stoppingToken);
+                                var command = JsonSerializer.Deserialize<SendNotificationCommandDto>(msg.Payload);
+                                if (command != null)
+                                {
+                                    await SendNotification(db, command, stoppingToken);
+                                }
+                            }
+                            else if (msg.MessageType == "order-cancelled")
+                            {
+                                var evt = JsonSerializer.Deserialize<OrderCancelledEvent>(msg.Payload);
+                                if (evt != null)
+                                {
+                                    await ProcessOrderCancelledEvent(db, evt, stoppingToken);
+                                }
                             }
 
                             // Mark as processed
@@ -185,6 +196,28 @@ namespace NotificationService.Background
 
             _logger.LogInformation("Mock notification sent: {Message}", command.Message);
             return (true, null);
+        }
+
+        private async Task ProcessOrderCancelledEvent(NotificationDbContext db, OrderCancelledEvent evt, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("NotificationService: Processing order cancellation for OrderId: {OrderId}", evt.OrderId);
+
+            var notification = new Notification
+            {
+                OrderId = evt.OrderId,
+                CustomerId = evt.CustomerId,
+                NotificationType = "Email",
+                Status = "Sent",
+                Message = $"Your order {evt.OrderId} has been cancelled. Reason: {evt.Reason}",
+                Recipient = $"{evt.CustomerId}@example.com",
+                CreatedAt = DateTime.UtcNow,
+                SentAt = DateTime.UtcNow
+            };
+
+            db.Notifications.Add(notification);
+            await db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("NotificationService: Cancellation notification sent for OrderId: {OrderId}", evt.OrderId);
         }
 
         private class SendNotificationCommandDto

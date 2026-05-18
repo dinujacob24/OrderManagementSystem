@@ -11,6 +11,7 @@ namespace PaymentService.Infrastructure.Database
 
         public DbSet<Payment> Payments { get; set; }
         public DbSet<OutboxMessage> OutboxMessages { get; set; }
+        public DbSet<Refund> Refunds { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

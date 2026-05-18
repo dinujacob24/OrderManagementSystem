@@ -308,13 +308,11 @@ namespace OrderService.Saga
             await _dbContext.SaveChangesAsync();
 
             // Notify customer about cancellation
-            await _publishEndpoint.Publish(new OrderCancelledEvent
+            await _publishEndpoint.Publish(new Shared.Messages.Events.OrderCancelledEvent
             {
-                SagaId = sagaState.SagaId,
                 OrderId = sagaState.OrderId,
                 CustomerId = sagaState.CustomerId,
-                Reason = reason,
-                Timestamp = DateTime.UtcNow
+                Reason = reason
             });
 
             await _publishEndpoint.Publish(new SendNotificationCommand
