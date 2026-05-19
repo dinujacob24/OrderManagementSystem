@@ -1,5 +1,6 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using OrderService.Common.Authentication;
 using OrderService.Consumers;
 using OrderService.Infrastructure.CustomerClient;
 using OrderService.Infrastructure.Database;
@@ -14,12 +15,28 @@ builder.Services.AddDbContext<OrderDbContext>(options =>
 // MediatR for CQRS
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblies(typeof(Program).Assembly));
 
+// Add HttpContextAccessor for forwarding JWT tokens
+builder.Services.AddHttpContextAccessor();
+
 // Customer Service HTTP client (Option A — synchronous customer validation)
 builder.Services.AddHttpClient<ICustomerValidationClient, CustomerValidationClient>(client =>
 {
     var baseUrl = builder.Configuration["CustomerService:BaseUrl"]
         ?? throw new InvalidOperationException("Missing configuration: CustomerService:BaseUrl");
     client.BaseAddress = new Uri(baseUrl);
+})
+.ConfigurePrimaryHttpMessageHandler(() =>
+{
+    var handler = new HttpClientHandler();
+
+    // In development, bypass SSL certificate validation for self-signed certificates
+    if (builder.Environment.IsDevelopment())
+    {
+        handler.ServerCertificateCustomValidationCallback = 
+            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+    }
+
+    return handler;
 });
 
 // Saga Orchestrator
@@ -73,12 +90,32 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "Order Service API", Version = "v1" });
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo { Title = "Order Service API", Version = "v1" });
+
+    // Add JWT Bearer Authentication to Swagger
+    c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Name = "Authorization",
+        In = Microsoft.OpenApi.ParameterLocation.Header,
+        Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+
+    c.AddSecurityRequirement(doc => new Microsoft.OpenApi.OpenApiSecurityRequirement
+    {
+        [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", doc, null)] = new List<string>()
+    });
 });
+
+// Add JWT Authentication
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
@@ -114,6 +151,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

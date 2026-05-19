@@ -15,7 +15,8 @@ public static class ListCustomersEndpoint
         })
         .WithName("ListCustomers")
         .WithTags("Customers")
-        .Produces<List<ListCustomersResponse>>();
+        .Produces<List<ListCustomersResponse>>()
+        .RequireAuthorization();
 
         return app;
     }

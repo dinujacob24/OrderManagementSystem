@@ -1,13 +1,16 @@
 using System.Text.Json;
+using CustomerService.Common.Authentication;
 using CustomerService.Common.Behaviors;
 using CustomerService.Common.Exceptions;
 using CustomerService.Common.Persistence;
+using CustomerService.Features.Authentication;
 using CustomerService.Features.CreateCustomer;
 using CustomerService.Features.DeactivateCustomer;
 using CustomerService.Features.GetCustomerById;
 using CustomerService.Features.ListCustomers;
 using CustomerService.Features.ReactivateCustomer;
 using CustomerService.Features.UpdateCustomer;
+using CustomerService.Infrastructure.OrderClient;
 using FluentValidation;
 using Mapster;
 using MapsterMapper;
@@ -23,16 +26,32 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo
     {
         Title = "Customer Service API",
         Version = "v1",
         Description = "API for managing customers in the Order Management System"
     });
+
+    // Add JWT Authentication to Swagger
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
+        Name = "Authorization",
+        In = Microsoft.OpenApi.ParameterLocation.Header,
+        Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+
+    options.AddSecurityRequirement(doc => new Microsoft.OpenApi.OpenApiSecurityRequirement
+    {
+        [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", doc, null)] = new List<string>()
+    });
 });
 
 builder.Services.AddDbContext<CustomerDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<CustomerDbContext>(
@@ -49,6 +68,34 @@ var typeAdapterConfig = TypeAdapterConfig.GlobalSettings;
 typeAdapterConfig.Scan(typeof(Program).Assembly);
 builder.Services.AddSingleton(typeAdapterConfig);
 builder.Services.AddScoped<IMapper, ServiceMapper>();
+
+// Add HttpContextAccessor for forwarding JWT tokens
+builder.Services.AddHttpContextAccessor();
+
+// Add Order Service HTTP client for cancelling orders when customer is deactivated
+builder.Services.AddHttpClient<IOrderServiceClient, OrderServiceClient>(client =>
+{
+    var baseUrl = builder.Configuration["OrderService:BaseUrl"]
+        ?? throw new InvalidOperationException("Missing configuration: OrderService:BaseUrl");
+    client.BaseAddress = new Uri(baseUrl);
+});
+
+// Add JWT Token Generator
+builder.Services.AddScoped<JwtTokenGenerator>();
+
+// Add CORS to allow OrderService to call CustomerService
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+// Add JWT Authentication
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
@@ -118,6 +165,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Enable CORS before authentication
+app.UseCors("AllowAll");
+
+// Enable authentication and authorization
+app.UseAuthentication();
+app.UseAuthorization();
+
 // --- Health checks ---
 // /health           — full snapshot of every registered check
 // /health/live      — liveness only (process is up; no dependencies probed)
@@ -159,6 +213,7 @@ app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.Health
 });
 
 // --- Map vertical-slice minimal API endpoints ---
+app.MapAuthentication();
 app.MapCreateCustomer();
 app.MapGetCustomerById();
 app.MapListCustomers();

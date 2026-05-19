@@ -19,7 +19,8 @@ public static class UpdateCustomerEndpoint
         .WithTags("Customers")
         .Produces<UpdateCustomerResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesValidationProblem();
+        .ProducesValidationProblem()
+        .RequireAuthorization();
 
         return app;
     }

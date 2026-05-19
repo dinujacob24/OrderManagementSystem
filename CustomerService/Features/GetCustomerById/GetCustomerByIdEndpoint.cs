@@ -17,7 +17,8 @@ public static class GetCustomerByIdEndpoint
         .WithName("GetCustomerById")
         .WithTags("Customers")
         .Produces<GetCustomerByIdResponse>()
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .RequireAuthorization();
 
         return app;
     }

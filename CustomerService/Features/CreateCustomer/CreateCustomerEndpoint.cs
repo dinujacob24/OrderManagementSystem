@@ -17,7 +17,8 @@ public static class CreateCustomerEndpoint
         .WithName("CreateCustomer")
         .WithTags("Customers")
         .Produces<CreateCustomerResponse>(StatusCodes.Status201Created)
-        .ProducesValidationProblem();
+        .ProducesValidationProblem()
+        .RequireAuthorization();
 
         return app;
     }

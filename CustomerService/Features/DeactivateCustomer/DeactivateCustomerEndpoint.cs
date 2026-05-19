@@ -17,7 +17,8 @@ public static class DeactivateCustomerEndpoint
         .WithName("DeactivateCustomer")
         .WithTags("Customers")
         .Produces<DeactivateCustomerResponse>()
-        .ProducesProblem(StatusCodes.Status404NotFound);
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .RequireAuthorization();
 
         return app;
     }

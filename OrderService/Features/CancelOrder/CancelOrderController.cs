@@ -1,10 +1,12 @@
 namespace OrderService.Features.CancelOrder;
 
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
 [Route("api/orders")]
+[Authorize]
 public class CancelOrderController : ControllerBase
 {
     private readonly IMediator _mediator;

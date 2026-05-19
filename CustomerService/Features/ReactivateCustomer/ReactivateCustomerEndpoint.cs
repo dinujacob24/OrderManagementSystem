@@ -18,7 +18,8 @@ public static class ReactivateCustomerEndpoint
         .WithTags("Customers")
         .Produces<ReactivateCustomerResponse>()
         .ProducesProblem(StatusCodes.Status404NotFound)
-        .ProducesProblem(StatusCodes.Status409Conflict);
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .RequireAuthorization();
 
         return app;
     }

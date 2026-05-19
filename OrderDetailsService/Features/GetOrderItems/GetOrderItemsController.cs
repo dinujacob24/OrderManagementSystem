@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OrderDetailsService.DTOs;
 
@@ -6,6 +7,7 @@ namespace OrderDetailsService.Features.GetOrderItems
 {
     [ApiController]
     [Route("api/orders/{orderId}/items")]
+    [Authorize]
     public class GetOrderItemsController : ControllerBase
     {
         private readonly IMediator _mediator;
