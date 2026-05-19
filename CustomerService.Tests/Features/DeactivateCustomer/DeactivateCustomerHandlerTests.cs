@@ -1,9 +1,12 @@
 using CustomerService.Common.Enums;
 using CustomerService.Common.Exceptions;
 using CustomerService.Features.DeactivateCustomer;
+using CustomerService.Infrastructure.OrderClient;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace CustomerService.Tests.Features.DeactivateCustomer;
 
@@ -15,7 +18,12 @@ public class DeactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Active().Build());
         await db.SaveChangesAsync();
-        var sut = new DeactivateCustomerHandler(db);
+        var mockOrderServiceClient = new Mock<IOrderServiceClient>();
+        mockOrderServiceClient
+            .Setup(x => x.CancelCustomerOrdersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrderCancellationResult.Ok(0));
+        var mockLogger = new Mock<ILogger<DeactivateCustomerHandler>>();
+        var sut = new DeactivateCustomerHandler(db, mockOrderServiceClient.Object, mockLogger.Object);
 
         var response = await sut.Handle(new DeactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -30,7 +38,12 @@ public class DeactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Active().WithUpdatedAt(null).Build());
         await db.SaveChangesAsync();
-        var sut = new DeactivateCustomerHandler(db);
+        var mockOrderServiceClient = new Mock<IOrderServiceClient>();
+        mockOrderServiceClient
+            .Setup(x => x.CancelCustomerOrdersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrderCancellationResult.Ok(0));
+        var mockLogger = new Mock<ILogger<DeactivateCustomerHandler>>();
+        var sut = new DeactivateCustomerHandler(db, mockOrderServiceClient.Object, mockLogger.Object);
         var before = DateTime.UtcNow;
 
         await sut.Handle(new DeactivateCustomerCommand("CUST-001"), CancellationToken.None);
@@ -47,7 +60,12 @@ public class DeactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Suspended().Build());
         await db.SaveChangesAsync();
-        var sut = new DeactivateCustomerHandler(db);
+        var mockOrderServiceClient = new Mock<IOrderServiceClient>();
+        mockOrderServiceClient
+            .Setup(x => x.CancelCustomerOrdersAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OrderCancellationResult.Ok(0));
+        var mockLogger = new Mock<ILogger<DeactivateCustomerHandler>>();
+        var sut = new DeactivateCustomerHandler(db, mockOrderServiceClient.Object, mockLogger.Object);
 
         var response = await sut.Handle(new DeactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -65,7 +83,9 @@ public class DeactivateCustomerHandlerTests
             .WithUpdatedAt(existingUpdatedAt)
             .Build());
         await db.SaveChangesAsync();
-        var sut = new DeactivateCustomerHandler(db);
+        var mockOrderServiceClient = new Mock<IOrderServiceClient>();
+        var mockLogger = new Mock<ILogger<DeactivateCustomerHandler>>();
+        var sut = new DeactivateCustomerHandler(db, mockOrderServiceClient.Object, mockLogger.Object);
 
         var response = await sut.Handle(new DeactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -78,7 +98,9 @@ public class DeactivateCustomerHandlerTests
     public async Task Handle_ThrowsNotFound_WhenMissing()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new DeactivateCustomerHandler(db);
+        var mockOrderServiceClient = new Mock<IOrderServiceClient>();
+        var mockLogger = new Mock<ILogger<DeactivateCustomerHandler>>();
+        var sut = new DeactivateCustomerHandler(db, mockOrderServiceClient.Object, mockLogger.Object);
 
         var act = () => sut.Handle(new DeactivateCustomerCommand("CUST-MISSING"), CancellationToken.None);
 
