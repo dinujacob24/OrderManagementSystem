@@ -19,8 +19,13 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Shared.Logging;
+using Shared.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Central Logging — sends logs to LoggingService via HTTP
+builder.AddCentralLogging("CustomerService");
 
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
@@ -65,7 +70,7 @@ var isTesting = builder.Configuration.GetValue<bool>("Testing:UseInMemoryDatabas
 if (!isTesting)
 {
     builder.Services.AddDbContext<CustomerDbContext>(options =>
-        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+        options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 }
 
 builder.Services.AddHealthChecks()
@@ -113,6 +118,15 @@ builder.Services.AddCors(options =>
 builder.Services.AddJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
+
+// Auto-apply migrations on startup so the database is always up to date.
+// Skipped when tests use the InMemory provider — Migrate() requires a relational provider.
+if (!isTesting)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<CustomerDbContext>();
+    db.Database.Migrate();
+}
 
 app.UseExceptionHandler(eh => eh.Run(async ctx =>
 {
@@ -179,6 +193,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Attach/propagate X-Correlation-Id header on every request
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 // Enable CORS before authentication
 app.UseCors("AllowAll");

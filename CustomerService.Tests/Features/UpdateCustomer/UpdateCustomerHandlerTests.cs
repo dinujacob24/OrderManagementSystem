@@ -3,6 +3,7 @@ using CustomerService.Features.UpdateCustomer;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CustomerService.Tests.Features.UpdateCustomer;
 
@@ -25,7 +26,7 @@ public class UpdateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Build());
         await db.SaveChangesAsync();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
 
         await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -45,7 +46,7 @@ public class UpdateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Build());
         await db.SaveChangesAsync();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
         var before = DateTime.UtcNow;
 
         await sut.Handle(Cmd(), CancellationToken.None);
@@ -62,7 +63,7 @@ public class UpdateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Build());
         await db.SaveChangesAsync();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
 
         var response = await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -85,7 +86,7 @@ public class UpdateCustomerHandlerTests
             .WithCountry("US")
             .Build());
         await db.SaveChangesAsync();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
 
         await sut.Handle(Cmd(phone: null, addressLine1: null, city: null, country: null), CancellationToken.None);
 
@@ -107,7 +108,7 @@ public class UpdateCustomerHandlerTests
             .WithCreatedAt(originalCreated)
             .Build());
         await db.SaveChangesAsync();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
 
         await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -120,7 +121,7 @@ public class UpdateCustomerHandlerTests
     public async Task Handle_ThrowsNotFound_WhenMissing()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new UpdateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<UpdateCustomerHandler>.Instance);
 
         var act = () => sut.Handle(Cmd("CUST-MISSING"), CancellationToken.None);
 

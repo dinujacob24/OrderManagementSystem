@@ -1,6 +1,7 @@
 using CustomerService.Features.ListCustomers;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CustomerService.Tests.Features.ListCustomers;
 
@@ -10,7 +11,7 @@ public class ListCustomersHandlerTests
     public async Task Handle_ReturnsEmpty_WhenNoCustomers()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new ListCustomersHandler(db, TestMapperFactory.Create());
+        var sut = new ListCustomersHandler(db, TestMapperFactory.Create(), NullLogger<ListCustomersHandler>.Instance);
 
         var result = await sut.Handle(new ListCustomersQuery(), CancellationToken.None);
 
@@ -26,7 +27,7 @@ public class ListCustomersHandlerTests
             new CustomerBuilder().WithId("CUST-002").WithCreatedAt(new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)).Build(),
             new CustomerBuilder().WithId("CUST-003").WithCreatedAt(new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc)).Build());
         await db.SaveChangesAsync();
-        var sut = new ListCustomersHandler(db, TestMapperFactory.Create());
+        var sut = new ListCustomersHandler(db, TestMapperFactory.Create(), NullLogger<ListCustomersHandler>.Instance);
 
         var result = await sut.Handle(new ListCustomersQuery(), CancellationToken.None);
 
@@ -42,7 +43,7 @@ public class ListCustomersHandlerTests
             new CustomerBuilder().WithId("CUST-003").WithCreatedAt(new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc)).Build(),
             new CustomerBuilder().WithId("CUST-002").WithCreatedAt(new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)).Build());
         await db.SaveChangesAsync();
-        var sut = new ListCustomersHandler(db, TestMapperFactory.Create());
+        var sut = new ListCustomersHandler(db, TestMapperFactory.Create(), NullLogger<ListCustomersHandler>.Instance);
 
         var result = await sut.Handle(new ListCustomersQuery(), CancellationToken.None);
 
@@ -58,7 +59,7 @@ public class ListCustomersHandlerTests
             new CustomerBuilder().WithId("CUST-002").Inactive().Build(),
             new CustomerBuilder().WithId("CUST-003").Suspended().Build());
         await db.SaveChangesAsync();
-        var sut = new ListCustomersHandler(db, TestMapperFactory.Create());
+        var sut = new ListCustomersHandler(db, TestMapperFactory.Create(), NullLogger<ListCustomersHandler>.Instance);
 
         var result = await sut.Handle(new ListCustomersQuery(), CancellationToken.None);
 
@@ -77,7 +78,7 @@ public class ListCustomersHandlerTests
             .WithPhone("555")
             .Build());
         await db.SaveChangesAsync();
-        var sut = new ListCustomersHandler(db, TestMapperFactory.Create());
+        var sut = new ListCustomersHandler(db, TestMapperFactory.Create(), NullLogger<ListCustomersHandler>.Instance);
 
         var result = await sut.Handle(new ListCustomersQuery(), CancellationToken.None);
 
