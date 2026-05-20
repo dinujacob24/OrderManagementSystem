@@ -95,7 +95,7 @@ builder.Services.AddCors(options =>
 });
 
 // Add JWT Authentication
-builder.Services.AddJwtAuthentication(builder.Configuration);
+//builder.Services.AddJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
@@ -169,8 +169,8 @@ app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 
 // Enable authentication and authorization
-app.UseAuthentication();
-app.UseAuthorization();
+//app.UseAuthentication();
+//app.UseAuthorization();
 
 // --- Health checks ---
 // /health           — full snapshot of every registered check
@@ -223,5 +223,36 @@ app.MapReactivateCustomer();
 
 app.Run();
 
-public partial class Program { }
 
+
+// Look for UseUrls, Kestrel endpoints, or launchSettings.json
+var uri = builder.Configuration["CustomerService:BaseUrl"];
+if (string.IsNullOrEmpty(uri))
+{
+    throw new InvalidOperationException("Missing configuration: CustomerService:BaseUrl");
+}
+
+app.Use(async (context, next) =>
+{
+    // Rewrite the request URL to the configured base URL
+    context.Request.PathBase = new PathString(uri);
+    await next.Invoke();
+});
+
+// Check for errors or misconfigurations
+var requiredSettings = new[]
+{
+    "CustomerService:BaseUrl",
+    "OrderService:BaseUrl",
+    "ConnectionStrings:DefaultConnection"
+};
+
+foreach (var setting in requiredSettings)
+{
+    if (string.IsNullOrEmpty(builder.Configuration[setting]))
+    {
+        throw new InvalidOperationException($"Missing configuration: {setting}");
+    }
+}
+
+public partial class Program { }

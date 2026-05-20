@@ -36,8 +36,12 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+
 // Add JWT Authentication
 builder.Services.AddJwtAuthentication(builder.Configuration);
+
+// Register health checks
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -60,5 +64,15 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Map health check endpoint
+app.MapHealthChecks("/health");
+
+// Look for UseUrls, Kestrel endpoints, or launchSettings.json
+var httpPort = builder.Configuration.GetValue<int>("HttpPort", 80);
+var httpsPort = builder.Configuration.GetValue<int>("HttpsPort", 443);
+
+app.Urls.Add($"http://localhost:{httpPort}");
+app.Urls.Add($"https://localhost:{httpsPort}");
 
 app.Run();

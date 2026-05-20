@@ -79,6 +79,8 @@ builder.Services.AddMassTransit(x =>
     // });
 });
 
+// Register health checks
+builder.Services.AddHealthChecks();
 // CORS Configuration
 builder.Services.AddCors(options =>
 {
@@ -155,5 +157,26 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Map health check endpoint
+app.MapHealthChecks("/health");
+
+// Look for UseUrls, Kestrel endpoints, or launchSettings.json
+var host = app.Services.GetService<IHost>();
+
+if (host != null)
+{
+    // If using Kestrel, ensure it's configured to listen on the expected URLs
+    var urls = host.Services.GetService<IConfiguration>()["Kestrel:Endpoints:Http:Url"];
+    if (string.IsNullOrEmpty(urls))
+    {
+        var logger = host.Services.GetService<ILogger<Program>>();
+        logger.LogWarning("Kestrel URL configuration not found. Listen URLs: {Urls}", urls);
+    }
+    else
+    {
+        app.Urls.Add(urls);
+    }
+}
 
 app.Run();

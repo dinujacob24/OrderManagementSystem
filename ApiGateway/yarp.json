@@ -1,0 +1,62 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      //"orderservice": {
+      //  "ClusterId": "orderservice",
+      //  "Match": { "Path": "/orderservice/{**catch-all}" }
+      //},
+      "orderservice": {
+        "ClusterId": "orderservice",
+        "Match": { "Path": "/api/Orders/{**catch-all}" }
+      },
+      "customerservice": {
+        "ClusterId": "customerservice",
+        "Match": { "Path": "/customerservice/{**catch-all}" }
+      },
+      "paymentservice": {
+        "ClusterId": "paymentservice",
+        "Match": { "Path": "/paymentservice/{**catch-all}" }
+      },
+      "notificationservice": {
+        "ClusterId": "notificationservice",
+        "Match": { "Path": "/notificationservice/{**catch-all}" }
+      },
+      "orderdetailsservice": {
+        "ClusterId": "orderdetailsservice",
+        "Match": { "Path": "/orderdetailsservice/{**catch-all}" }
+      },
+      "createorder_by_id": {
+        "ClusterId": "orderservice",
+        "Match": { "Path": "/api/Orders/{orderId}" }
+      }
+
+    },
+    "Clusters": {
+      "orderservice": {
+        "Destinations": {
+          "orderservice": { "Address": "https://localhost:7056/" }
+        }
+      },
+      "customerservice": {
+        "Destinations": {
+          "customerservice": { "Address": "http://localhost:5002/" }
+        }
+      },
+      "paymentservice": {
+        "Destinations": {
+          "paymentservice": { "Address": "http://localhost:5003/" }
+        }
+      },
+      "notificationservice": {
+        "Destinations": {
+          "notificationservice": { "Address": "http://localhost:5004/" }
+        }
+      },
+      "orderdetailsservice": {
+        "Destinations": {
+          "orderdetailsservice": { "Address": "http://localhost:5005/" }
+        }
+      }
+    }
+  }
+}
