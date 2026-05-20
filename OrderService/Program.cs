@@ -1,10 +1,12 @@
 using MassTransit;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Common.Authentication;
 using OrderService.Consumers;
 using OrderService.Infrastructure.CustomerClient;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -119,6 +121,26 @@ builder.Services.AddSwaggerGen(c =>
 // Add JWT Authentication
 builder.Services.AddJwtAuthentication(builder.Configuration);
 
+// Add rate limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429; // Ensure 429 is returned on rejection
+    options.AddPolicy("user", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.Identity?.IsAuthenticated == true
+                ? context.User.Identity.Name
+                : context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: key => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 2,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }
+        )
+    );
+});
+
 var app = builder.Build();
 
 // Apply pending migrations and create database
@@ -156,7 +178,11 @@ app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
+// Use rate limiting middleware
+app.UseRateLimiter();
+
+// Apply rate limiting to all controllers
+app.MapControllers().RequireRateLimiting("user");
 
 // Map health check endpoint
 app.MapHealthChecks("/health");
