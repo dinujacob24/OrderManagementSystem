@@ -3,8 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using OrderDetailsService.Common.Authentication;
 using OrderDetailsService.Consumers;
 using OrderDetailsService.Infrastructure.Database;
+using Shared.Logging;
+using Shared.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Central Logging — sends logs to LoggingService via HTTP
+builder.AddCentralLogging("OrderDetailsService");
 
 // Database Configuration - SQLite
 builder.Services.AddDbContext<OrderDetailsDbContext>(options =>
@@ -127,6 +132,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowAll");
+
+// Attach/propagate X-Correlation-Id header on every request
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
