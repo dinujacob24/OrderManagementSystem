@@ -95,7 +95,7 @@ builder.Services.AddCors(options =>
 });
 
 // Add JWT Authentication
-//builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
 var app = builder.Build();
 
@@ -168,9 +168,9 @@ app.UseHttpsRedirection();
 // Enable CORS before authentication
 app.UseCors("AllowAll");
 
-// Enable authentication and authorization
-//app.UseAuthentication();
-//app.UseAuthorization();
+//Enable authentication and authorization
+app.UseAuthentication();
+app.UseAuthorization();
 
 // --- Health checks ---
 // /health           — full snapshot of every registered check
