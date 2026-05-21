@@ -25,14 +25,48 @@ namespace Shared.Logging
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel level)
-        {
-            if (_category.StartsWith("Microsoft") || _category.StartsWith("System"))
-            {
-                return level >= LogLevel.Warning;
-            }
+        // Defer to the standard logging filter pipeline configured via
+        // appsettings.json (Logging:LogLevel). The framework will not call Log()
+        // for categories/levels that are filtered out.
+        public bool IsEnabled(LogLevel level) => level != LogLevel.None;
 
-            return level >= LogLevel.Information;
+        // Categories and message fragments that are pure infrastructure noise
+        private static readonly string[] _noisyCategories =
+        [
+            "Microsoft.AspNetCore.StaticFiles",
+            "Microsoft.AspNetCore.Hosting.Diagnostics",
+            "Microsoft.AspNetCore.DataProtection",
+            "MassTransit",
+        ];
+
+        private static readonly string[] _noisyMessageFragments =
+        [
+            "/swagger/",
+            "swagger.json",
+            "Endpoint Ready:",
+            "Starting bus",
+            "Bus started",
+            "Configured endpoint",
+            "DataProtection",
+            "database schema",
+            ".css",
+            ".js",
+        ];
+
+        private bool IsNoise(LogLevel level, string category, string message)
+        {
+            if (level == LogLevel.Debug || level == LogLevel.Trace)
+                return true;
+
+            foreach (var c in _noisyCategories)
+                if (category.StartsWith(c, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+            foreach (var f in _noisyMessageFragments)
+                if (message.Contains(f, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+            return false;
         }
 
         public void Log<TState>(LogLevel level, EventId id, TState state, Exception? ex, Func<TState, Exception?, string> fmt)
@@ -41,6 +75,8 @@ namespace Shared.Logging
 
             var rawMsg = fmt(state, ex);
             var fullMsg = $"[{_category}] {rawMsg}";
+
+            if (IsNoise(level, _category, fullMsg)) return;
 
             var log = new LogEntryDto
             {
