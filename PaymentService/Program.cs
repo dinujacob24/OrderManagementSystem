@@ -1,8 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using PaymentService.Common.Authentication;
 using PaymentService.Infrastructure.Database;
+using Shared.Logging;
+using Shared.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Central Logging — sends logs to LoggingService via HTTP
+builder.AddCentralLogging("PaymentService");
 
 // Database Configuration - SQLite (shared database)
 builder.Services.AddDbContext<PaymentDbContext>(options =>
@@ -55,6 +60,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Attach/propagate X-Correlation-Id header on every request
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
