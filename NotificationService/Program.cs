@@ -3,8 +3,13 @@ using Microsoft.OpenApi;
 using NotificationService.Background;
 using NotificationService.Common.Authentication;
 using NotificationService.Infrastructure.Database;
+using Shared.Logging;
+using Shared.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Central Logging — sends logs to LoggingService via HTTP
+builder.AddCentralLogging("NotificationService");
 
 // Add services to the container
 builder.Services.AddControllers();
@@ -45,6 +50,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
