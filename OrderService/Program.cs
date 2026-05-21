@@ -5,8 +5,13 @@ using OrderService.Consumers;
 using OrderService.Infrastructure.CustomerClient;
 using OrderService.Infrastructure.Database;
 using OrderService.Saga;
+using Shared.Logging;
+using Shared.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Central Logging — sends logs to LoggingService via HTTP
+builder.AddCentralLogging("OrderService");
 
 // Database Configuration - SQLite
 builder.Services.AddDbContext<OrderDbContext>(options =>
@@ -150,6 +155,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowAll");
+
+// Attach/propagate X-Correlation-Id header on every request
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

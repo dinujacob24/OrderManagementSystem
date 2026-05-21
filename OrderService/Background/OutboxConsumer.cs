@@ -51,22 +51,6 @@ namespace OrderService.Background
                                   && !m.Processed)
                         .CountAsync(stoppingToken);
 
-                    // Debug: Check what's actually in the database
-                    var allMessages = await db.OutboxMessages
-                        .OrderByDescending(m => m.CreatedAt)
-                        .Take(10)
-                        .Select(m => new { m.Id, m.MessageType, m.Processed, m.CreatedAt })
-                        .ToListAsync(stoppingToken);
-
-                    _logger.LogInformation("DEBUG: Total messages in DB (last 10): {Count}", allMessages.Count);
-                    foreach (var m in allMessages)
-                    {
-                        _logger.LogInformation("DEBUG:   - Id: {Id}, Type: '{MessageType}', Processed: {Processed}, Created: {Created}", 
-                            m.Id, m.MessageType, m.Processed, m.CreatedAt);
-                    }
-
-                    _logger.LogInformation("DEBUG: Query returned {Count} unprocessed matching messages", totalUnprocessed);
-
                     if (totalUnprocessed > 0)
                     {
                         _logger.LogInformation("OutboxConsumer: Polling... Found {Count} unprocessed event messages", totalUnprocessed);

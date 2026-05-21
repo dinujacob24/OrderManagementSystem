@@ -33,15 +33,21 @@ namespace OrderService.Background
                     // OutboxDispatcher should ONLY handle messages meant for MassTransit in-memory publishing
                     // NOT messages meant for database outbox pattern (handled by OutboxConsumer or other services)
                     // Since we're using database outbox for all cross-service communication, this should be EMPTY
-                    var allowedTypes = new string[] 
-                    { 
+                    var allowedTypes = new string[]
+                    {
                         // Empty - no messages should be published via MassTransit
                         // All commands/events use database outbox pattern
                     };
 
+                    if (allowedTypes.Length == 0)
+                    {
+                        await Task.Delay(_interval, stoppingToken);
+                        continue;
+                    }
+
                     var pending = await db.OutboxMessages
                         .Where(o => !o.Processed)
-                        .Where(o => allowedTypes.Contains(o.MessageType))  // Only process allowed types
+                        .Where(o => allowedTypes.Contains(o.MessageType))
                         .OrderBy(o => o.CreatedAt)
                         .Take(20)
                         .ToListAsync(stoppingToken);
