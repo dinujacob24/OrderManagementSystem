@@ -7,4 +7,5 @@ public class OrderCancelledEvent
     public string Reason { get; set; } = string.Empty;
     public DateTime CancelledAt { get; set; }
     public Guid CorrelationId { get; set; }
+    public Guid SagaId { get; set; }
 }

@@ -1,9 +1,10 @@
 namespace OrderService.Features.CancelOrder;
 
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using OrderService.Domain;
 using OrderService.Infrastructure.Database;
-using Microsoft.EntityFrameworkCore;
+using OrderService.Saga;
 using Shared.Messages.Events;
 
 public class CancelOrderCommand : IRequest<CancelOrderResponse>
@@ -14,83 +15,47 @@ public class CancelOrderCommand : IRequest<CancelOrderResponse>
 
 public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, CancelOrderResponse>
 {
-    private readonly OrderDbContext _context;
+    private readonly OrderDbContext _dbContext;
+    private readonly OrderSagaOrchestrator _sagaOrchestrator;
     private readonly ILogger<CancelOrderCommandHandler> _logger;
 
     public CancelOrderCommandHandler(
-        OrderDbContext context,
+        OrderDbContext dbContext,
+        OrderSagaOrchestrator sagaOrchestrator,
         ILogger<CancelOrderCommandHandler> logger)
     {
-        _context = context;
+        _dbContext = dbContext;
+        _sagaOrchestrator = sagaOrchestrator;
         _logger = logger;
     }
 
-    public async Task<CancelOrderResponse> Handle(
-        CancelOrderCommand request,
-        CancellationToken cancellationToken)
+    public async Task<CancelOrderResponse> Handle(CancelOrderCommand request, CancellationToken cancellationToken)
     {
-        try
+        var order = await _dbContext.Orders.FindAsync(request.OrderId);
+        if (order == null)
         {
-            var order = await _context.Orders
-                .FirstOrDefaultAsync(o => o.OrderId == request.OrderId, cancellationToken);
-
-            if (order == null)
-            {
-                return new CancelOrderResponse
-                {
-                    Success = false,
-                    Message = "Order not found",
-                    OrderId = request.OrderId
-                };
-            }
-
-            // Cancel the order
-            order.Cancel(request.Reason);
-
-            // Publish OrderCancelledEvent to Outbox
-            var orderCancelledEvent = new OrderCancelledEvent
-            {
-                OrderId = order.OrderId,
-                CustomerId = order.CustomerId,
-                Reason = request.Reason,
-                CancelledAt = DateTime.UtcNow,
-                CorrelationId = Guid.NewGuid()
-            };
-
-            var outboxMessage = new OutboxMessage
-            {
-                Id = Guid.NewGuid(),
-                MessageType = "order-cancelled",
-                Payload = System.Text.Json.JsonSerializer.Serialize(orderCancelledEvent),
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.OutboxMessages.Add(outboxMessage);
-            await _context.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Order {OrderId} cancelled successfully", order.OrderId);
-
-            return new CancelOrderResponse
-            {
-                Success = true,
-                Message = "Order cancelled successfully",
-                OrderId = order.OrderId
-            };
+            return new CancelOrderResponse { Success = false, Message = "Order not found." };
         }
-        catch (InvalidOperationException ex)
+
+        // Mark order as cancelled
+        order.Status = OrderStatus.Cancelled;
+        order.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // Find saga state
+        var sagaState = await _dbContext.SagaStates.FirstOrDefaultAsync(s => s.OrderId == order.OrderId);
+        var sagaId = sagaState?.SagaId ?? Guid.NewGuid();
+
+        // Publish OrderCancelledEvent and trigger saga compensation
+        var orderCancelledEvent = new OrderCancelledEvent
         {
-            _logger.LogWarning(ex, "Cannot cancel order {OrderId}", request.OrderId);
-            return new CancelOrderResponse
-            {
-                Success = false,
-                Message = ex.Message,
-                OrderId = request.OrderId
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cancelling order {OrderId}", request.OrderId);
-            throw;
-        }
+            OrderId = order.OrderId,
+            CustomerId = order.CustomerId,
+            SagaId = sagaId,
+            Reason = "Order cancelled by user"
+        };
+        await _sagaOrchestrator.HandleOrderCancelledEvent(orderCancelledEvent);
+
+        return new CancelOrderResponse { Success = true, Message = "Order cancelled successfully." };
     }
 }

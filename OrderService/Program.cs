@@ -132,8 +132,8 @@ builder.Services.AddRateLimiter(options =>
                 : context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
             factory: key => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 2,
-                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 10,
+                Window = TimeSpan.FromSeconds(30),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             }
