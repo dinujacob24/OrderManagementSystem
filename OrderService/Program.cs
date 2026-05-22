@@ -1,4 +1,5 @@
 using MassTransit;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Common.Authentication;
 using OrderService.Consumers;
@@ -7,6 +8,7 @@ using OrderService.Infrastructure.Database;
 using OrderService.Saga;
 using Shared.Logging;
 using Shared.Middleware;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -84,6 +86,8 @@ builder.Services.AddMassTransit(x =>
     // });
 });
 
+// Register health checks
+builder.Services.AddHealthChecks();
 // CORS Configuration
 builder.Services.AddCors(options =>
 {
@@ -121,6 +125,26 @@ builder.Services.AddSwaggerGen(c =>
 
 // Add JWT Authentication
 builder.Services.AddJwtAuthentication(builder.Configuration);
+
+// Add rate limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = 429; // Ensure 429 is returned on rejection
+    options.AddPolicy("user", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.Identity?.IsAuthenticated == true
+                ? context.User.Identity.Name
+                : context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: key => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromSeconds(30),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }
+        )
+    );
+});
 
 var app = builder.Build();
 
@@ -162,7 +186,32 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
+// Use rate limiting middleware
+app.UseRateLimiter();
+
+// Apply rate limiting to all controllers
+app.MapControllers().RequireRateLimiting("user");
+
+// Map health check endpoint
+app.MapHealthChecks("/health");
+
+// Look for UseUrls, Kestrel endpoints, or launchSettings.json
+var host = app.Services.GetService<IHost>();
+
+if (host != null)
+{
+    // If using Kestrel, ensure it's configured to listen on the expected URLs
+    var urls = host.Services.GetService<IConfiguration>()["Kestrel:Endpoints:Http:Url"];
+    if (string.IsNullOrEmpty(urls))
+    {
+        var logger = host.Services.GetService<ILogger<Program>>();
+        logger.LogWarning("Kestrel URL configuration not found. Listen URLs: {Urls}", urls);
+    }
+    else
+    {
+        app.Urls.Add(urls);
+    }
+}
 
 app.Run();
 

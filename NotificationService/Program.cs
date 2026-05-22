@@ -33,6 +33,10 @@ builder.Services.AddScoped<NotificationService.Consumers.OrderCancelledConsumer>
 // Background services
 builder.Services.AddHostedService<OutboxConsumer>();
 
+
+// Register health checks
+builder.Services.AddHealthChecks();
+
 var app = builder.Build();
 
 // Initialize shared database
@@ -53,5 +57,15 @@ app.UseAuthentication();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+
+// Map health check endpoint
+app.MapHealthChecks("/health");
+
+//// Look for UseUrls, Kestrel endpoints, or launchSettings.json
+//var url = builder.Configuration["AppSettings:Url"];
+//if (!string.IsNullOrEmpty(url))
+//{
+//    app.Urls.Add(url);
+//}
 
 app.Run();

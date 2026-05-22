@@ -289,9 +289,17 @@ namespace OrderService.Saga
             }
         }
 
-        private async Task CompensateOrder(SagaState sagaState, string reason)
+        public async Task CompensateOrder(SagaState sagaState, string reason)
         {
             _logger.LogWarning("Compensating order for Saga {SagaId}", sagaState.SagaId);
+
+            // Publish rollback event to Order Details Service
+            await _publishEndpoint.Publish(new RollbackOrderDetailsCommand
+            {
+                OrderId = sagaState.OrderId,
+                SagaId = sagaState.SagaId,
+                Timestamp = DateTime.UtcNow
+            });
 
             var order = await _dbContext.Orders.FindAsync(sagaState.OrderId);
             if (order != null)
@@ -331,11 +339,35 @@ namespace OrderService.Saga
         private async Task CompensatePayment(SagaState sagaState, string reason)
         {
             _logger.LogWarning("Compensating payment for Saga {SagaId}", sagaState.SagaId);
+            await _publishEndpoint.Publish(new ProcessRefundCommand
+            {
+
+                OrderId = sagaState.OrderId,
+                Amount = 100,
+                PaymentId=2,
+                CorrelationId=Guid.NewGuid()
+
+            });
 
             // In a real scenario, you would publish a rollback event to Order Details Service
             // to delete the order details that were created
 
             await CompensateOrder(sagaState, reason);
+        }
+
+        public async Task HandleOrderCancelledEvent(Shared.Messages.Events.OrderCancelledEvent @event)
+        {
+            _logger.LogInformation("Handling OrderCancelledEvent for OrderId: {OrderId}, SagaId: {SagaId}", @event.OrderId, @event.SagaId);
+
+            var sagaState = await _dbContext.SagaStates.FirstOrDefaultAsync(s => s.OrderId == @event.OrderId && s.SagaId == @event.SagaId);
+            if (sagaState == null)
+            {
+                _logger.LogWarning("Saga state not found for OrderId: {OrderId}, SagaId: {SagaId}", @event.OrderId, @event.SagaId);
+                return;
+            }
+
+            // Compensate payment and order details if needed
+            await CompensatePayment(sagaState, @event.Reason ?? "Order cancelled");
         }
     }
 }
