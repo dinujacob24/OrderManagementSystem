@@ -4,6 +4,7 @@ using CustomerService.Features.ReactivateCustomer;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CustomerService.Tests.Features.ReactivateCustomer;
 
@@ -15,7 +16,7 @@ public class ReactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Inactive().Build());
         await db.SaveChangesAsync();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
 
         var response = await sut.Handle(new ReactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -30,7 +31,7 @@ public class ReactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Inactive().WithUpdatedAt(null).Build());
         await db.SaveChangesAsync();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
         var before = DateTime.UtcNow;
 
         await sut.Handle(new ReactivateCustomerCommand("CUST-001"), CancellationToken.None);
@@ -52,7 +53,7 @@ public class ReactivateCustomerHandlerTests
             .WithUpdatedAt(existingUpdatedAt)
             .Build());
         await db.SaveChangesAsync();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
 
         var response = await sut.Handle(new ReactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -67,7 +68,7 @@ public class ReactivateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Suspended().Build());
         await db.SaveChangesAsync();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
 
         var act = () => sut.Handle(new ReactivateCustomerCommand("CUST-001"), CancellationToken.None);
 
@@ -86,7 +87,7 @@ public class ReactivateCustomerHandlerTests
             .WithUpdatedAt(existingUpdatedAt)
             .Build());
         await db.SaveChangesAsync();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
 
         try { await sut.Handle(new ReactivateCustomerCommand("CUST-001"), CancellationToken.None); }
         catch (ConflictException) { }
@@ -100,7 +101,7 @@ public class ReactivateCustomerHandlerTests
     public async Task Handle_ThrowsNotFound_WhenMissing()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new ReactivateCustomerHandler(db);
+        var sut = new ReactivateCustomerHandler(db, NullLogger<ReactivateCustomerHandler>.Instance);
 
         var act = () => sut.Handle(new ReactivateCustomerCommand("CUST-MISSING"), CancellationToken.None);
 

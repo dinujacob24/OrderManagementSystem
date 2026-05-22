@@ -4,6 +4,7 @@ using CustomerService.Features.CreateCustomer;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CustomerService.Tests.Features.CreateCustomer;
 
@@ -24,7 +25,7 @@ public class CreateCustomerHandlerTests
     public async Task Handle_PersistsCustomer_AndReturnsResponse()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         var response = await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -39,7 +40,7 @@ public class CreateCustomerHandlerTests
     public async Task Handle_MapsEveryRequestField()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         await sut.Handle(
             Cmd(phone: "555-1234", addressLine1: "1 Main St", city: "Townsville", country: "US"),
@@ -56,7 +57,7 @@ public class CreateCustomerHandlerTests
     public async Task Handle_ForcesStatusActive_RegardlessOfMapping()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -68,7 +69,7 @@ public class CreateCustomerHandlerTests
     public async Task Handle_SetsCreatedAt_ToRecentUtcNow()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
         var before = DateTime.UtcNow;
 
         await sut.Handle(Cmd(), CancellationToken.None);
@@ -83,7 +84,7 @@ public class CreateCustomerHandlerTests
     public async Task Handle_LeavesUpdatedAtNull()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         await sut.Handle(Cmd(), CancellationToken.None);
 
@@ -97,7 +98,7 @@ public class CreateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Build());
         await db.SaveChangesAsync();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         var act = () => sut.Handle(Cmd("CUST-001"), CancellationToken.None);
 
@@ -111,7 +112,7 @@ public class CreateCustomerHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").WithEmail("first@example.com").Build());
         await db.SaveChangesAsync();
-        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create());
+        var sut = new CreateCustomerHandler(db, TestMapperFactory.Create(), NullLogger<CreateCustomerHandler>.Instance);
 
         try { await sut.Handle(Cmd("CUST-001", email: "second@example.com"), CancellationToken.None); }
         catch (ConflictException) { }

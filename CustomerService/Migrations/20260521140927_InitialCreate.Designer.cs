@@ -11,14 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CustomerService.Migrations
 {
     [DbContext(typeof(CustomerDbContext))]
-    [Migration("20260518113747_InitialCreate")]
+    [Migration("20260521140927_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
+            modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
 
             modelBuilder.Entity("CustomerService.Common.Entities.Customer", b =>
                 {

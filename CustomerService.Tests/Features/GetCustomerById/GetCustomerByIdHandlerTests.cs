@@ -2,6 +2,7 @@ using CustomerService.Common.Exceptions;
 using CustomerService.Features.GetCustomerById;
 using CustomerService.Tests.Helpers;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CustomerService.Tests.Features.GetCustomerById;
 
@@ -22,7 +23,7 @@ public class GetCustomerByIdHandlerTests
             .WithCountry("US")
             .Build());
         await db.SaveChangesAsync();
-        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create());
+        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create(), NullLogger<GetCustomerByIdHandler>.Instance);
 
         var result = await sut.Handle(new GetCustomerByIdQuery("CUST-001"), CancellationToken.None);
 
@@ -43,7 +44,7 @@ public class GetCustomerByIdHandlerTests
         await using var db = TestDbContextFactory.Create();
         db.Customers.Add(new CustomerBuilder().WithId("CUST-001").Inactive().Build());
         await db.SaveChangesAsync();
-        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create());
+        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create(), NullLogger<GetCustomerByIdHandler>.Instance);
 
         var result = await sut.Handle(new GetCustomerByIdQuery("CUST-001"), CancellationToken.None);
 
@@ -54,7 +55,7 @@ public class GetCustomerByIdHandlerTests
     public async Task Handle_ThrowsNotFound_WhenMissing()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create());
+        var sut = new GetCustomerByIdHandler(db, TestMapperFactory.Create(), NullLogger<GetCustomerByIdHandler>.Instance);
 
         var act = () => sut.Handle(new GetCustomerByIdQuery("CUST-MISSING"), CancellationToken.None);
 
