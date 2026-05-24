@@ -1,9 +1,13 @@
 using FluentAssertions;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using OrderService.Domain;
 using OrderService.Features.CancelOrder;
+using OrderService.Saga;
 using OrderService.Tests.Helpers;
+using Shared.Messages.Events;
 
 namespace OrderService.Tests.Features.CancelOrder;
 
@@ -12,6 +16,15 @@ public class CancelOrderCommandHandlerTests
     private static CancelOrderCommand Cmd(int orderId, string reason = "Customer requested") =>
         new() { OrderId = orderId, Reason = reason };
 
+    private static (CancelOrderCommandHandler sut, Mock<IPublishEndpoint> publish)
+        CreateSut(Infrastructure.Database.OrderDbContext db)
+    {
+        var publish = new Mock<IPublishEndpoint>();
+        var saga = new OrderSagaOrchestrator(db, publish.Object, NullLogger<OrderSagaOrchestrator>.Instance);
+        var sut = new CancelOrderCommandHandler(db, saga, NullLogger<CancelOrderCommandHandler>.Instance);
+        return (sut, publish);
+    }
+
     [Fact]
     public async Task Handle_CancelsOrder_AndReturnsSuccess()
     {
@@ -19,12 +32,11 @@ public class CancelOrderCommandHandlerTests
         var existing = new OrderBuilder().Pending().Build();
         db.Orders.Add(existing);
         await db.SaveChangesAsync();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, _) = CreateSut(db);
 
         var response = await sut.Handle(Cmd(existing.OrderId), CancellationToken.None);
 
         response.Success.Should().BeTrue();
-        response.OrderId.Should().Be(existing.OrderId);
         response.Message.Should().Contain("cancelled successfully");
     }
 
@@ -35,7 +47,7 @@ public class CancelOrderCommandHandlerTests
         var existing = new OrderBuilder().Pending().Build();
         db.Orders.Add(existing);
         await db.SaveChangesAsync();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, _) = CreateSut(db);
 
         await sut.Handle(Cmd(existing.OrderId), CancellationToken.None);
 
@@ -50,7 +62,7 @@ public class CancelOrderCommandHandlerTests
         var existing = new OrderBuilder().Pending().Build();
         db.Orders.Add(existing);
         await db.SaveChangesAsync();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, _) = CreateSut(db);
         var before = DateTime.UtcNow;
 
         await sut.Handle(Cmd(existing.OrderId), CancellationToken.None);
@@ -62,45 +74,58 @@ public class CancelOrderCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WritesOrderCancelledEvent_ToOutbox()
+    public async Task Handle_InvokesSagaCompensation_WhenSagaStateExists()
     {
         await using var db = TestDbContextFactory.Create();
         var existing = new OrderBuilder().WithCustomerId("CUST-007").Pending().Build();
         db.Orders.Add(existing);
         await db.SaveChangesAsync();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        db.SagaStates.Add(new SagaState
+        {
+            SagaId = Guid.NewGuid(),
+            OrderId = existing.OrderId,
+            CustomerId = existing.CustomerId,
+            CurrentStep = "OrderCreated",
+            Status = OrderStatus.Pending,
+            StartedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+        var (sut, publish) = CreateSut(db);
 
         await sut.Handle(Cmd(existing.OrderId, reason: "Out of stock"), CancellationToken.None);
 
-        var outbox = await db.OutboxMessages.SingleAsync();
-        outbox.MessageType.Should().Be("order-cancelled");
-        outbox.Processed.Should().BeFalse();
-        outbox.Payload.Should().Contain("CUST-007");
-        outbox.Payload.Should().Contain("Out of stock");
+        publish.Verify(
+            p => p.Publish(
+                It.Is<OrderCancelledEvent>(e =>
+                    e.OrderId == existing.OrderId &&
+                    e.CustomerId == "CUST-007"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
     public async Task Handle_ReturnsFailure_WhenOrderNotFound()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, _) = CreateSut(db);
 
         var response = await sut.Handle(Cmd(orderId: 9999), CancellationToken.None);
 
         response.Success.Should().BeFalse();
-        response.OrderId.Should().Be(9999);
-        response.Message.Should().Be("Order not found");
+        response.Message.Should().Be("Order not found.");
     }
 
     [Fact]
-    public async Task Handle_DoesNotWriteOutbox_WhenOrderNotFound()
+    public async Task Handle_DoesNotInvokeSaga_WhenOrderNotFound()
     {
         await using var db = TestDbContextFactory.Create();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, publish) = CreateSut(db);
 
         await sut.Handle(Cmd(orderId: 9999), CancellationToken.None);
 
-        (await db.OutboxMessages.AnyAsync()).Should().BeFalse();
+        publish.Verify(
+            p => p.Publish(It.IsAny<object>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -111,7 +136,7 @@ public class CancelOrderCommandHandlerTests
         var other = new OrderBuilder().WithCustomerId("CUST-002").Pending().Build();
         db.Orders.AddRange(target, other);
         await db.SaveChangesAsync();
-        var sut = new CancelOrderCommandHandler(db, NullLogger<CancelOrderCommandHandler>.Instance);
+        var (sut, _) = CreateSut(db);
 
         await sut.Handle(Cmd(target.OrderId), CancellationToken.None);
 

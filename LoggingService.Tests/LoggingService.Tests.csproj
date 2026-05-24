@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\LoggingService.csproj" />
+    <ProjectReference Include="..\LoggingService\LoggingService.csproj" />
   </ItemGroup>
 
 </Project>

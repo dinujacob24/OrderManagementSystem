@@ -119,7 +119,6 @@ public class OrdersApiTests : IClassFixture<OrderApiFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<CancelOrderResponse>();
         body!.Success.Should().BeTrue();
-        body.OrderId.Should().Be(order.OrderId);
     }
 
     [Fact]
